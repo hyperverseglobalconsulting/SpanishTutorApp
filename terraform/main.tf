@@ -486,6 +486,39 @@ data "archive_file" "progress_lambda" {
   output_path = "${path.module}/../lambda/progress.zip"
 }
 
+# ─────────────────────────────────────────────
+# CLOUDWATCH LOG GROUPS (3-day retention)
+# ─────────────────────────────────────────────
+resource "aws_cloudwatch_log_group" "lambda_progress" {
+  name              = "/aws/lambda/${var.app_name}-progress"
+  retention_in_days = 3
+}
+
+resource "aws_cloudwatch_log_group" "lambda_chatbot" {
+  name              = "/aws/lambda/${var.app_name}-chatbot"
+  retention_in_days = 3
+}
+
+resource "aws_cloudwatch_log_group" "lambda_curriculum" {
+  name              = "/aws/lambda/${var.app_name}-curriculum"
+  retention_in_days = 3
+}
+
+resource "aws_cloudwatch_log_group" "lambda_analytics" {
+  name              = "/aws/lambda/${var.app_name}-analytics"
+  retention_in_days = 3
+}
+
+resource "aws_cloudwatch_log_group" "lambda_seed" {
+  name              = "/aws/lambda/${var.app_name}-seed"
+  retention_in_days = 3
+}
+
+resource "aws_cloudwatch_log_group" "api_gateway" {
+  name              = "/aws/apigateway/${var.app_name}-api"
+  retention_in_days = 3
+}
+
 resource "aws_lambda_function" "progress" {
   function_name    = "${var.app_name}-progress"
   role             = aws_iam_role.lambda.arn
@@ -494,6 +527,7 @@ resource "aws_lambda_function" "progress" {
   timeout          = 10
   filename         = data.archive_file.progress_lambda.output_path
   source_code_hash = data.archive_file.progress_lambda.output_base64sha256
+  depends_on       = [aws_cloudwatch_log_group.lambda_progress]
 
   environment {
     variables = {
@@ -519,6 +553,7 @@ resource "aws_lambda_function" "chatbot" {
   timeout          = 30
   filename         = data.archive_file.chatbot_lambda.output_path
   source_code_hash = data.archive_file.chatbot_lambda.output_base64sha256
+  depends_on       = [aws_cloudwatch_log_group.lambda_chatbot]
 
   environment {
     variables = {
@@ -545,6 +580,7 @@ resource "aws_lambda_function" "curriculum" {
   timeout          = 10
   filename         = data.archive_file.curriculum_lambda.output_path
   source_code_hash = data.archive_file.curriculum_lambda.output_base64sha256
+  depends_on       = [aws_cloudwatch_log_group.lambda_curriculum]
 
   environment {
     variables = {
@@ -570,6 +606,7 @@ resource "aws_lambda_function" "analytics" {
   timeout          = 10
   filename         = data.archive_file.analytics_lambda.output_path
   source_code_hash = data.archive_file.analytics_lambda.output_base64sha256
+  depends_on       = [aws_cloudwatch_log_group.lambda_analytics]
 
   environment {
     variables = {
@@ -597,6 +634,7 @@ resource "aws_lambda_function" "seed" {
   memory_size      = 512
   filename         = data.archive_file.seed_lambda.output_path
   source_code_hash = data.archive_file.seed_lambda.output_base64sha256
+  depends_on       = [aws_cloudwatch_log_group.lambda_seed]
 
   environment {
     variables = {
