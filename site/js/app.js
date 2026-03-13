@@ -235,8 +235,7 @@ function renderPhaseMap() {
       const stageInfo = Curriculum.STAGES.find(s => s.id === stage);
       const done = progress >= 95;
 
-      html += `<div class="quick-card" style="--accent-c:${done ? 'var(--green)' : unitUnlocked ? 'var(--accent)' : 'var(--dim)'};padding:16px;cursor:${unitUnlocked ? 'pointer' : 'default'};opacity:${unitUnlocked ? 1 : 0.45}"
-        ${unitUnlocked ? `onclick="startUnit(${unit.id})"` : ''}>
+      html += `<div class="quick-card" style="--accent-c:${done ? 'var(--green)' : unitUnlocked ? 'var(--accent)' : 'var(--dim)'};padding:16px;cursor:default;opacity:${unitUnlocked ? 1 : 0.45}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Unit ${unit.id}</span>
           ${done ? '<span style="font-size:.9rem">✅</span>' : !unitUnlocked ? '<span style="font-size:.8rem">🔒</span>' : ''}
@@ -244,10 +243,14 @@ function renderPhaseMap() {
         <div style="font-weight:600;font-size:.9rem;margin-bottom:6px">${unit.title}</div>
         <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">${unit.words.length} words · ${stageInfo ? stageInfo.icon + ' ' + stageInfo.label : ''}</div>
         ${stageInfo && stageInfo.questionTypes ? `<div style="font-size:.68rem;color:var(--muted);margin-bottom:8px;line-height:1.3">${stageInfo.questionTypes.join(' · ')}</div>` : ''}
-        <div style="background:var(--dim);border-radius:3px;height:4px;overflow:hidden">
+        <div style="background:var(--dim);border-radius:3px;height:4px;overflow:hidden;margin-bottom:10px">
           <div style="height:100%;width:${progress}%;background:${done ? 'var(--green)' : 'var(--accent)'};border-radius:3px;transition:width .3s"></div>
         </div>
-        <div style="font-size:.7rem;color:var(--muted);margin-top:4px;text-align:right">${progress}%</div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:.7rem;color:var(--muted)">${progress}%</div>
+          ${unitUnlocked && progress > 0 ? `<button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="event.stopPropagation();startUnit(${unit.id})">🔄 Retake</button>` : ''}
+          ${unitUnlocked && progress === 0 ? `<button class="btn btn-primary" style="font-size:.7rem;padding:4px 10px" onclick="event.stopPropagation();startUnit(${unit.id})">▶ Start</button>` : ''}
+        </div>
       </div>`;
     }
     html += '</div></div>';
