@@ -16,11 +16,16 @@ const Curriculum = (() => {
 
   // ── Lesson stages ──
   const STAGES = [
-    { id: 'learn',    label: 'Learn',    icon: '📖', desc: 'See new words with meaning & pronunciation' },
-    { id: 'recognise',label: 'Recognise', icon: '👁️', desc: 'Pick the correct English meaning' },
-    { id: 'recall',   label: 'Recall',   icon: '🧠', desc: 'Pick the correct Spanish word' },
-    { id: 'produce',  label: 'Produce',  icon: '✏️',  desc: 'Type the Spanish word from memory' },
-    { id: 'use',      label: 'Use',      icon: '💬', desc: 'Complete sentences and conversations' },
+    { id: 'learn',    label: 'Learn',    icon: '📖', desc: 'See new words with meaning & pronunciation', 
+      questionTypes: ['📖 Introduction'] },
+    { id: 'recognise',label: 'Recognise', icon: '👁️', desc: 'Pick the correct English meaning', 
+      questionTypes: ['🎯 Multiple Choice (ES→EN)'] },
+    { id: 'recall',   label: 'Recall',   icon: '🧠', desc: 'Pick the correct Spanish word', 
+      questionTypes: ['🎯 Multiple Choice (EN→ES)'] },
+    { id: 'produce',  label: 'Produce',  icon: '✏️',  desc: 'Type the Spanish word from memory', 
+      questionTypes: ['✏️ Type Answer', '🌐 Translate'] },
+    { id: 'use',      label: 'Use',      icon: '💬', desc: 'Complete sentences and conversations', 
+      questionTypes: ['✏️ Fill in Blank', '🌐 Translate', '🔤 Sentence Order'] },
   ];
 
   // ── Situational scenarios (unlock after specific phases) ──
