@@ -193,9 +193,12 @@ function renderLearnCard(container, ex) {
           <div style="font-style:italic;margin-bottom:4px">${w.example_es} ${speakBtn(w.example_es, 'tts-learn-ex-' + ex.index, '🔊')}</div>
           <div style="color:var(--muted);font-size:.85rem">${w.example_en}</div>
         </div>` : ''}
+      <div id="aiEnrich" style="margin:12px 0;text-align:left"></div>
       <button class="btn btn-primary" style="margin-top:16px" onclick="submitLearn()">Got it — Next →</button>
     </div>`;
   setTimeout(() => speak(w.spanish, 'tts-learn-' + ex.index), 300);
+  // AI enrichment: load mnemonic, cultural note, fun fact
+  loadWordEnrichment(w);
 }
 
 function submitLearn() {
@@ -222,6 +225,7 @@ function renderMCQCard(container, ex) {
           </button>`).join('')}
       </div>
       <div class="feedback-box" id="feedback"></div>
+      <div id="grammarHelp"></div>
       <button class="next-btn" id="nextBtn" onclick="renderExercise()">Next →</button>
     </div>`;
   if (isEsToEn) setTimeout(() => speak(ex.prompt, 'tts-mcq-q'), 200);
@@ -241,6 +245,7 @@ function submitMCQ(btn, chosen) {
     });
     showFeedback(false, `❌ Answer: <b>${result.answer}</b>. ${result.explanation}
       ${result.word ? speakBtn(result.word.spanish, 'tts-mcq-fb', '🔊') : ''}`);
+    if (result.word) loadGrammarHelp(result.word, chosen, result.answer, 'mcq');
   }
 }
 
@@ -256,6 +261,7 @@ function renderProduceCard(container, ex) {
         <button class="submit-btn" onclick="submitProduce()">Check ✓</button>
       </div>
       <div class="feedback-box" id="feedback"></div>
+      <div id="grammarHelp"></div>
       <button class="next-btn" id="nextBtn" onclick="renderExercise()">Next →</button>
     </div>`;
   setTimeout(() => document.getElementById('produceAns')?.focus(), 50);
@@ -277,6 +283,7 @@ function submitProduce() {
     showFeedback(false, `❌ Answer: <b>${result.answer}</b>. ${result.explanation}
       ${speakBtn(result.answer, 'tts-prod-fb', '🔊')}`);
     setTimeout(() => speak(result.answer, 'tts-prod-fb'), 300);
+    if (result.word) loadGrammarHelp(result.word, inp.value, result.answer, 'produce');
   }
 }
 
@@ -292,6 +299,7 @@ function renderFillCard(container, ex) {
         <button class="submit-btn" onclick="submitFill()">Check ✓</button>
       </div>
       <div class="feedback-box" id="feedback"></div>
+      <div id="grammarHelp"></div>
       <button class="next-btn" id="nextBtn" onclick="renderExercise()">Next →</button>
     </div>`;
   setTimeout(() => document.getElementById('fillAns')?.focus(), 50);
@@ -311,6 +319,7 @@ function submitFill() {
     inp.classList.add('wrong');
     showFeedback(false, `❌ Answer: <b>${result.answer}</b>. ${result.explanation}
       ${speakBtn(result.word?.example_es || result.answer, 'tts-fill-fb', '🔊')}`);
+    if (result.word) loadGrammarHelp(result.word, inp.value, result.answer, 'fill');
   }
 }
 
@@ -326,6 +335,7 @@ function renderTranslateCard(container, ex) {
         <button class="submit-btn" onclick="submitTranslate()">Check ✓</button>
       </div>
       <div class="feedback-box" id="feedback"></div>
+      <div id="grammarHelp"></div>
       <button class="next-btn" id="nextBtn" onclick="renderExercise()">Next →</button>
     </div>`;
   setTimeout(() => document.getElementById('transAns')?.focus(), 50);
@@ -343,6 +353,7 @@ function submitTranslate() {
   } else {
     inp.classList.add('wrong');
     showFeedback(false, `❌ Answer: <b>${result.answer}</b>. ${result.explanation}`);
+    if (result.word) loadGrammarHelp(result.word, inp.value, result.answer, 'translate');
   }
 }
 
@@ -601,7 +612,474 @@ function startFreeFlashcards(pool) {
   render();
 }
 
-// ── AUTH UI ───────────────────────────────────────────────────────────────────
+// ── AI: WORD ENRICHMENT (mnemonics, cultural notes) ─────────────────────────
+async function loadWordEnrichment(w) {
+  const el = document.getElementById('aiEnrich');
+  if (!el) return;
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.8rem"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div> AI generating memory tricks…</div>`;
+  try {
+    const data = await AI.enrichWord(w);
+    el.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;font-size:.85rem;line-height:1.6">
+        <div style="margin-bottom:8px"><strong style="color:var(--accent)">💡 Memory trick:</strong> ${data.mnemonic}</div>
+        <div style="margin-bottom:8px"><strong style="color:var(--purple)">🌎 Culture:</strong> ${data.cultural}</div>
+        <div style="margin-bottom:8px"><strong style="color:var(--blue)">📚 Fun fact:</strong> ${data.funFact}</div>
+        ${data.commonMistakes ? `<div style="margin-bottom:8px"><strong style="color:var(--accent2)">⚠️ Watch out:</strong> ${data.commonMistakes}</div>` : ''}
+        ${data.extraExamples && data.extraExamples.length ? `<div style="color:var(--muted);font-style:italic">${data.extraExamples.map(e => `• ${e}`).join('<br/>')}</div>` : ''}
+      </div>`;
+  } catch (e) {
+    el.innerHTML = `<div style="font-size:.75rem;color:var(--dim)">AI tips unavailable</div>`;
+  }
+}
+
+// ── AI: GRAMMAR COACH (on wrong answers) ─────────────────────────────────────
+async function loadGrammarHelp(wordObj, studentAnswer, correctAnswer, exerciseType) {
+  const el = document.getElementById('grammarHelp');
+  if (!el) return;
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.8rem;margin-top:8px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div> AI explaining…</div>`;
+  try {
+    const explanation = await AI.explainError(wordObj, studentAnswer, correctAnswer, exerciseType);
+    el.innerHTML = `<div style="background:rgba(74,158,255,.08);border:1px solid rgba(74,158,255,.2);border-radius:8px;padding:12px;font-size:.85rem;color:var(--text);line-height:1.6;margin-top:8px">
+      <strong style="color:var(--blue)">🧑‍🏫 Grammar Coach:</strong> ${explanation}</div>`;
+  } catch (e) {
+    el.innerHTML = '';
+  }
+}
+
+// ── AI: DYNAMIC SCENARIO CONVERSATIONS ───────────────────────────────────────
+const AI_SCENARIOS = [
+  { id: 'restaurant', title: 'At a Restaurant', desc: 'You are a customer at a Spanish restaurant. Order food, ask about the menu, and pay the bill.', icon: '🍽️' },
+  { id: 'hotel', title: 'Checking into a Hotel', desc: 'You are checking into a hotel in Barcelona. Ask about your room, wifi, and local recommendations.', icon: '🏨' },
+  { id: 'doctor', title: 'At the Doctor', desc: 'You are visiting a doctor in Spain. Describe your symptoms and understand the diagnosis.', icon: '🏥' },
+  { id: 'shopping', title: 'Shopping for Clothes', desc: 'You are shopping for clothes in Madrid. Ask about sizes, colors, prices, and try things on.', icon: '🛍️' },
+  { id: 'directions', title: 'Asking for Directions', desc: 'You are lost in a Spanish city. Ask a local for directions to the train station.', icon: '🗺️' },
+  { id: 'party', title: 'At a Friend\'s Party', desc: 'You are at a party in Spain. Introduce yourself, talk about hobbies, and make plans.', icon: '🎉' },
+  { id: 'airport', title: 'At the Airport', desc: 'You are at a Spanish airport. Check in, go through security, and find your gate.', icon: '✈️' },
+  { id: 'school', title: 'First Day at School', desc: 'You are a new student at a Spanish school. Meet classmates, find your classroom, and talk about subjects.', icon: '🏫' },
+];
+
+function openAIScenario() {
+  showScreen('ai-scenario');
+  const chat = document.getElementById('aiScenarioChat');
+  chat.innerHTML = '';
+  const input = document.getElementById('aiScenarioInput');
+  input.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px">
+      <div style="font-size:.9rem;color:var(--muted);margin-bottom:12px">Choose a scenario to practice:</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">
+        ${AI_SCENARIOS.map(s => `
+          <button class="option" style="text-align:center;padding:14px;flex-direction:column;gap:4px" onclick="startAIConversation('${s.id}')">
+            <div style="font-size:1.5rem">${s.icon}</div>
+            <div style="font-weight:600;font-size:.85rem">${s.title}</div>
+          </button>`).join('')}
+      </div>
+    </div>`;
+}
+
+async function startAIConversation(scenarioId) {
+  const scenario = AI_SCENARIOS.find(s => s.id === scenarioId);
+  if (!scenario) return;
+  document.getElementById('aiScenarioTitle').textContent = `${scenario.icon} ${scenario.title}`;
+  const chat = document.getElementById('aiScenarioChat');
+  chat.innerHTML = '';
+  const input = document.getElementById('aiScenarioInput');
+  input.innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.85rem"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Profesora Luna is setting the scene…</div>`;
+
+  try {
+    const known = AI.getKnownWordObjects();
+    const resp = await AI.startAIScenario(scenario.desc, known);
+    appendAIBubble(chat, 'tutor', resp.es, resp.en);
+    showAIScenarioInput(resp.nextPrompt || 'Respond in Spanish…');
+  } catch (e) {
+    input.innerHTML = `<div class="no-key-banner">❌ ${e.message}</div><button class="btn btn-primary" style="margin-top:12px" onclick="openAIScenario()">← Back</button>`;
+  }
+}
+
+function appendAIBubble(chat, role, text, translation, correction) {
+  const isTutor = role === 'tutor';
+  const tid = 'tts-ai-sc-' + Date.now();
+  chat.innerHTML += `
+    <div style="display:flex;gap:10px;align-items:flex-start;max-width:85%;${isTutor ? '' : 'align-self:flex-end;margin-left:auto'}">
+      ${isTutor ? `<div style="width:36px;height:36px;border-radius:50%;background:var(--purple);display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0">🧑‍🏫</div>` : ''}
+      <div style="background:${isTutor ? 'var(--card)' : 'rgba(255,107,53,.12)'};border:1px solid ${isTutor ? 'var(--border)' : 'rgba(255,107,53,.25)'};border-radius:12px;padding:12px 16px">
+        <div style="font-size:.95rem">${text} ${isTutor ? speakBtn(text, tid, '🔊') : ''}</div>
+        ${translation ? `<div style="font-size:.8rem;color:var(--muted);margin-top:4px;font-style:italic">${translation}</div>` : ''}
+        ${correction ? `<div style="font-size:.8rem;color:var(--accent2);margin-top:4px">📝 ${correction}</div>` : ''}
+      </div>
+      ${!isTutor ? `<div style="width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0">👤</div>` : ''}
+    </div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function showAIScenarioInput(prompt) {
+  document.getElementById('aiScenarioInput').innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px">
+      <div style="font-size:.82rem;color:var(--muted);margin-bottom:8px">💡 ${prompt}</div>
+      <div style="display:flex;gap:10px">
+        <input class="fill-input" id="aiScInput" placeholder="Type in Spanish…" onkeydown="if(event.key==='Enter') sendAIScenarioMsg()" style="flex:1"/>
+        <button class="submit-btn" onclick="sendAIScenarioMsg()">Send →</button>
+        <button class="btn btn-secondary" onclick="openAIScenario()" style="padding:10px 14px">🔄</button>
+      </div>
+    </div>`;
+  setTimeout(() => document.getElementById('aiScInput')?.focus(), 50);
+}
+
+async function sendAIScenarioMsg() {
+  const inp = document.getElementById('aiScInput');
+  if (!inp || !inp.value.trim()) return;
+  const text = inp.value.trim();
+  inp.disabled = true;
+
+  const chat = document.getElementById('aiScenarioChat');
+  appendAIBubble(chat, 'student', text);
+  document.getElementById('aiScenarioInput').innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.85rem"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Thinking…</div>`;
+
+  try {
+    const resp = await AI.continueScenario(text);
+    appendAIBubble(chat, 'tutor', resp.es, resp.en, resp.correction);
+    showAIScenarioInput(resp.nextPrompt || 'Continue the conversation…');
+  } catch (e) {
+    showAIScenarioInput('Try again…');
+  }
+}
+
+// ── AI: WRITING LAB ──────────────────────────────────────────────────────────
+const WRITING_PROMPTS = [
+  { title: 'Describe your family', prompt: 'Escribe sobre tu familia. ¿Cuántas personas hay? ¿Cómo se llaman? ¿Qué les gusta hacer?', hint: 'Write 3-5 sentences about your family members.' },
+  { title: 'My daily routine', prompt: 'Describe un día típico. ¿A qué hora te levantas? ¿Qué haces durante el día?', hint: 'Write 3-5 sentences about what you do each day.' },
+  { title: 'My favourite food', prompt: 'Escribe sobre tu comida favorita. ¿Qué te gusta comer? ¿Sabes cocinar?', hint: 'Write 3-5 sentences about food you enjoy.' },
+  { title: 'My school', prompt: 'Describe tu colegio. ¿Qué asignaturas estudias? ¿Cuál es tu favorita?', hint: 'Write 3-5 sentences about your school and subjects.' },
+  { title: 'Weekend plans', prompt: '¿Qué vas a hacer este fin de semana? Describe tus planes.', hint: 'Write 3-5 sentences about your weekend plans (use "voy a...").' },
+  { title: 'Describe your town', prompt: 'Describe tu ciudad o pueblo. ¿Qué hay? ¿Qué puedes hacer allí?', hint: 'Write 3-5 sentences about where you live.' },
+  { title: 'My hobbies', prompt: 'Escribe sobre tus pasatiempos. ¿Qué te gusta hacer en tu tiempo libre?', hint: 'Write 3-5 sentences about your hobbies.' },
+  { title: 'A memorable holiday', prompt: 'Describe unas vacaciones que recuerdas. ¿Adónde fuiste? ¿Qué hiciste?', hint: 'Write 3-5 sentences about a holiday (try past tense).' },
+];
+
+function openWritingLab() {
+  showScreen('writing');
+  const c = document.getElementById('writingContent');
+  const wp = WRITING_PROMPTS[Math.floor(Math.random() * WRITING_PROMPTS.length)];
+  c.innerHTML = `
+    <div class="question-card">
+      <div class="q-type-badge">📝 Writing Exercise</div>
+      <div class="q-text" style="font-size:1.1rem;margin-bottom:4px"><strong>${wp.title}</strong></div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin:12px 0">
+        <div style="font-size:1rem;font-style:italic">${wp.prompt}</div>
+        <div style="font-size:.82rem;color:var(--muted);margin-top:6px">${wp.hint}</div>
+      </div>
+      <textarea id="writingArea" rows="6" placeholder="Write your response in Spanish here…"
+        style="width:100%;padding:14px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-family:var(--font-body);font-size:.95rem;resize:vertical;outline:none;transition:border .2s"
+        onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+      <div style="display:flex;gap:10px;margin-top:12px;align-items:center">
+        <button class="btn btn-primary" onclick="submitWriting('${wp.title.replace(/'/g, "\\'")}')">📤 Submit for AI Review</button>
+        <button class="btn btn-secondary" onclick="openWritingLab()">🔄 New Prompt</button>
+      </div>
+      <div id="writingFeedback" style="margin-top:16px"></div>
+    </div>`;
+}
+
+async function submitWriting(promptTitle) {
+  const text = document.getElementById('writingArea')?.value.trim();
+  if (!text) { alert('Write something first!'); return; }
+  const fb = document.getElementById('writingFeedback');
+  fb.innerHTML = `<div style="display:flex;align-items:center;gap:8px;color:var(--muted)"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div> AI is reading and grading your writing…</div>`;
+
+  try {
+    const known = AI.getKnownWordObjects();
+    const data = await AI.gradeWriting(text, promptTitle, known);
+    const scoreColor = data.score >= 8 ? 'var(--green)' : data.score >= 5 ? 'var(--accent2)' : 'var(--red)';
+    fb.innerHTML = `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-top:8px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <div style="font-family:var(--font-display);font-size:2.5rem;font-weight:900;color:${scoreColor}">${data.score}/10</div>
+          <div style="font-size:.9rem;color:var(--muted)">${data.encouragement}</div>
+        </div>
+        ${data.correctedText ? `
+          <div style="margin-bottom:16px">
+            <div style="font-size:.75rem;text-transform:uppercase;color:var(--muted);letter-spacing:.08em;margin-bottom:6px">Corrected version</div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;font-style:italic;line-height:1.7">${data.correctedText}</div>
+          </div>` : ''}
+        ${data.errors && data.errors.length ? `
+          <div style="margin-bottom:16px">
+            <div style="font-size:.75rem;text-transform:uppercase;color:var(--muted);letter-spacing:.08em;margin-bottom:6px">Corrections</div>
+            ${data.errors.map(e => `
+              <div style="background:rgba(231,76,60,.06);border:1px solid rgba(231,76,60,.15);border-radius:8px;padding:10px;margin-bottom:6px;font-size:.85rem">
+                <span style="text-decoration:line-through;color:var(--red)">${e.original}</span> → <strong style="color:var(--green)">${e.corrected}</strong>
+                <div style="color:var(--muted);font-size:.8rem;margin-top:2px">${e.rule}</div>
+              </div>`).join('')}
+          </div>` : ''}
+        ${data.strengths && data.strengths.length ? `
+          <div style="margin-bottom:12px">
+            <div style="font-size:.75rem;text-transform:uppercase;color:var(--green);letter-spacing:.08em;margin-bottom:4px">Strengths</div>
+            ${data.strengths.map(s => `<div style="font-size:.85rem;color:var(--text)">✅ ${s}</div>`).join('')}
+          </div>` : ''}
+        ${data.suggestions && data.suggestions.length ? `
+          <div>
+            <div style="font-size:.75rem;text-transform:uppercase;color:var(--blue);letter-spacing:.08em;margin-bottom:4px">To improve</div>
+            ${data.suggestions.map(s => `<div style="font-size:.85rem;color:var(--text)">💡 ${s}</div>`).join('')}
+          </div>` : ''}
+      </div>`;
+  } catch (e) {
+    fb.innerHTML = `<div class="no-key-banner">❌ ${e.message}</div>`;
+  }
+}
+
+// ── AI: STORY MODE ───────────────────────────────────────────────────────────
+const STORY_THEMES = ['daily life', 'adventure', 'school', 'family', 'travel', 'mystery', 'sports', 'food'];
+
+function openStoryMode() {
+  showScreen('story');
+  const c = document.getElementById('storyContent');
+  c.innerHTML = `
+    <div class="question-card" style="text-align:center">
+      <div class="q-type-badge">📖 AI Story Generator</div>
+      <div style="font-size:1.1rem;margin:12px 0">Pick a theme and AI will write a story using your known vocabulary!</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:16px 0">
+        ${STORY_THEMES.map(t => `<button class="option" style="padding:10px 18px" onclick="generateStory('${t}')">${t.charAt(0).toUpperCase() + t.slice(1)}</button>`).join('')}
+      </div>
+    </div>`;
+}
+
+async function generateStory(theme) {
+  const c = document.getElementById('storyContent');
+  c.innerHTML = `<div class="loading-wrap"><div class="spinner"></div><div class="loading-text">AI is writing a "${theme}" story with your vocabulary…</div></div>`;
+
+  try {
+    const known = AI.getKnownWordObjects();
+    if (known.length < 5) {
+      c.innerHTML = `<div class="no-key-banner">Learn at least 5 words first so the AI can write a story with your vocabulary!</div><button class="btn btn-secondary" style="margin-top:12px" onclick="showScreen('dashboard')">← Dashboard</button>`;
+      return;
+    }
+    const story = await AI.generateStory(known, theme);
+    let storyQIdx = 0;
+
+    c.innerHTML = `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px">
+        <div style="font-family:var(--font-display);font-size:1.3rem;font-weight:700;margin-bottom:4px">${story.title}</div>
+        <div style="font-size:.82rem;color:var(--muted);margin-bottom:16px">${story.titleEn}</div>
+        <div id="storyText" style="line-height:1.9;font-size:1rem">
+          ${story.sentences.map((s, i) => `
+            <div style="margin-bottom:10px;padding:8px 12px;border-radius:8px;background:var(--surface);border:1px solid var(--border);cursor:pointer" onclick="this.querySelector('.st-en').style.display=this.querySelector('.st-en').style.display==='none'?'block':'none'" title="Click to see translation">
+              <div>${s.es} ${speakBtn(s.es, 'tts-story-' + i, '🔊')}</div>
+              <div class="st-en" style="display:none;font-size:.82rem;color:var(--muted);margin-top:4px;font-style:italic">${s.en}</div>
+            </div>`).join('')}
+        </div>
+        <div style="text-align:center;font-size:.8rem;color:var(--dim);margin:12px 0">Click any sentence to see its translation</div>
+      </div>
+      <div style="margin-top:20px">
+        <div style="font-family:var(--font-display);font-size:1.1rem;font-weight:600;margin-bottom:12px">📝 Comprehension Questions</div>
+        <div id="storyQuestions"></div>
+      </div>`;
+
+    renderStoryQuestion(story.questions, 0);
+  } catch (e) {
+    c.innerHTML = `<div class="no-key-banner">❌ ${e.message}</div><button class="btn btn-primary" style="margin-top:12px" onclick="openStoryMode()">← Try Again</button>`;
+  }
+}
+
+function renderStoryQuestion(questions, idx) {
+  const qc = document.getElementById('storyQuestions');
+  if (!qc || idx >= questions.length) {
+    if (qc) qc.innerHTML += `
+      <div class="result-card" style="margin-top:16px">
+        <div class="result-score">🎉</div>
+        <div class="result-label">Story complete!</div>
+        <div class="result-actions">
+          <button class="btn btn-primary" onclick="openStoryMode()">📖 New Story</button>
+          <button class="btn btn-secondary" onclick="showScreen('dashboard')">🏠 Dashboard</button>
+        </div>
+      </div>`;
+    return;
+  }
+  const q = questions[idx];
+  const letters = ['A', 'B', 'C', 'D'];
+  qc.innerHTML = `
+    <div class="question-card" style="margin-bottom:12px">
+      <div class="q-text" style="font-size:.95rem">${idx + 1}. ${q.q}</div>
+      <div class="options-grid" style="margin-top:10px">
+        ${(q.options || []).map((o, i) => `
+          <button class="option" onclick="checkStoryAnswer(this, '${letters[i]}', '${q.answer}', '${(q.explanation || '').replace(/'/g, "\\'")}', ${idx}, ${questions.length})">
+            <span class="opt-letter">${letters[i]}</span>${o}
+          </button>`).join('')}
+      </div>
+      <div class="feedback-box" id="storyFb"></div>
+    </div>`;
+  window._storyQs = questions;
+}
+
+function checkStoryAnswer(btn, chosen, correct, explanation, idx, total) {
+  document.querySelectorAll('#storyQuestions .option').forEach(b => b.disabled = true);
+  const fb = document.getElementById('storyFb');
+  if (chosen === correct) {
+    btn.classList.add('correct');
+    fb.className = 'feedback-box show ok';
+    fb.innerHTML = `✅ Correct! ${explanation}`;
+  } else {
+    btn.classList.add('wrong');
+    fb.className = 'feedback-box show bad';
+    fb.innerHTML = `❌ Answer: ${correct}. ${explanation}`;
+  }
+  setTimeout(() => renderStoryQuestion(window._storyQs, idx + 1), 1800);
+}
+
+// ── AI: SMART QUIZ ───────────────────────────────────────────────────────────
+let _aiQs = [], _aiQIdx = 0, _aiQCorrect = 0;
+
+function openAIQuiz() {
+  showScreen('ai-quiz');
+  const c = document.getElementById('aiQuizContent');
+  c.innerHTML = `<div class="loading-wrap"><div class="spinner"></div><div class="loading-text">AI is crafting a quiz targeting your weak spots…</div></div>`;
+  document.getElementById('aiQuizProgress').style.width = '0%';
+  document.getElementById('aiQuizCounter').textContent = '';
+  launchAIQuiz();
+}
+
+async function launchAIQuiz() {
+  const c = document.getElementById('aiQuizContent');
+  try {
+    let words = AI.getWeakWordObjects();
+    if (words.length < 4) words = shuffle(VOCAB).slice(0, 8);
+    else words = shuffle(words).slice(0, 8);
+
+    const qs = await AI.generateQuiz(words, 'mixed', 6);
+    _aiQs = qs; _aiQIdx = 0; _aiQCorrect = 0;
+    renderAIQuizQ();
+  } catch (e) {
+    c.innerHTML = `<div class="no-key-banner">❌ ${e.message}</div><button class="btn btn-primary" style="margin-top:12px" onclick="openAIQuiz()">Retry</button>`;
+  }
+}
+
+function renderAIQuizQ() {
+  const c = document.getElementById('aiQuizContent');
+  if (_aiQIdx >= _aiQs.length) {
+    const pct = Math.round(_aiQCorrect / _aiQs.length * 100);
+    const emoji = pct >= 80 ? '🌟' : pct >= 50 ? '👍' : '📚';
+    c.innerHTML = `
+      <div class="result-card">
+        <div style="font-size:3rem;margin-bottom:8px">${emoji}</div>
+        <div class="result-score">${pct}%</div>
+        <div class="result-label">${_aiQCorrect} / ${_aiQs.length} correct</div>
+        <div class="result-actions" style="margin-top:16px">
+          <button class="btn btn-primary" onclick="openAIQuiz()">🧠 New Quiz</button>
+          <button class="btn btn-secondary" onclick="showScreen('dashboard')">🏠 Dashboard</button>
+        </div>
+      </div>`;
+    return;
+  }
+  const q = _aiQs[_aiQIdx];
+  const pct = Math.round(_aiQIdx / _aiQs.length * 100);
+  document.getElementById('aiQuizProgress').style.width = pct + '%';
+  document.getElementById('aiQuizCounter').textContent = `${_aiQIdx + 1}/${_aiQs.length}`;
+
+  const badge = q.type === 'mcq' ? '🎯 Multiple Choice' : q.type === 'fill_blank' ? '✏️ Fill in Blank' : '🌐 Translate';
+  const qWithTTS = q.question + (q.word ? ` ${speakBtn(q.word, 'tts-aiq-w')}` : '');
+
+  let body = '';
+  if (q.type === 'mcq' && q.options) {
+    const letters = ['A', 'B', 'C', 'D'];
+    body = `<div class="options-grid">${(q.options || []).map((o, i) => `
+      <button class="option" onclick="checkAIQuizMCQ(this, '${o.replace(/'/g, "\\'")}', '${(q.answer || '').replace(/'/g, "\\'")}')">
+        <span class="opt-letter">${letters[i]}</span>${o}
+      </button>`).join('')}</div>`;
+  } else {
+    body = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input class="fill-input" id="aiqAns" placeholder="Type your answer…" style="max-width:320px" onkeydown="if(event.key==='Enter') checkAIQuizFill()"/>
+      <button class="submit-btn" onclick="checkAIQuizFill()">Check ✓</button>
+    </div>`;
+  }
+
+  c.innerHTML = `
+    <div class="question-card">
+      <div class="q-type-badge">${badge}</div>
+      <div class="q-text">${qWithTTS}</div>
+      <div class="q-hint">${q.hint || ''}</div>
+      ${body}
+      <div class="feedback-box" id="feedback"></div>
+      <div id="grammarHelp"></div>
+      <button class="next-btn" id="nextBtn" onclick="_aiQIdx++;renderAIQuizQ()">Next →</button>
+    </div>`;
+  if (q.type !== 'mcq') setTimeout(() => document.getElementById('aiqAns')?.focus(), 50);
+  if (q.word) setTimeout(() => speak(q.word, 'tts-aiq-w'), 200);
+}
+
+function checkAIQuizMCQ(btn, chosen, correct) {
+  document.querySelectorAll('.option').forEach(b => b.disabled = true);
+  const q = _aiQs[_aiQIdx];
+  const norm = s => s.trim().toLowerCase();
+  if (norm(chosen) === norm(correct)) {
+    btn.classList.add('correct'); _aiQCorrect++;
+    showFeedback(true, `✅ Correct! ${q.explanation || ''}`);
+    if (q.word) Mastery.recordAnswer(q.word, true, 'ai_quiz');
+  } else {
+    btn.classList.add('wrong');
+    showFeedback(false, `❌ Answer: <b>${correct}</b>. ${q.explanation || ''}`);
+    if (q.word) {
+      Mastery.recordAnswer(q.word, false, 'ai_quiz');
+      const wObj = VOCAB.find(w => w.spanish === q.word);
+      if (wObj) loadGrammarHelp(wObj, chosen, correct, q.type);
+    }
+  }
+}
+
+function checkAIQuizFill() {
+  const inp = document.getElementById('aiqAns');
+  if (!inp || !inp.value.trim()) return;
+  const q = _aiQs[_aiQIdx];
+  const norm = s => s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  inp.disabled = true;
+  document.querySelector('.submit-btn').disabled = true;
+  if (norm(inp.value) === norm(q.answer)) {
+    inp.classList.add('correct'); _aiQCorrect++;
+    showFeedback(true, `✅ Correct! ${q.explanation || ''}`);
+    if (q.word) Mastery.recordAnswer(q.word, true, 'ai_quiz');
+  } else {
+    inp.classList.add('wrong');
+    showFeedback(false, `❌ Answer: <b>${q.answer}</b>. ${q.explanation || ''}`);
+    if (q.word) {
+      Mastery.recordAnswer(q.word, false, 'ai_quiz');
+      const wObj = VOCAB.find(w => w.spanish === q.word);
+      if (wObj) loadGrammarHelp(wObj, inp.value, q.answer, q.type);
+    }
+  }
+}
+
+// ── AI: STUDY COACH ──────────────────────────────────────────────────────────
+async function openStudyCoach() {
+  showScreen('coach');
+  const c = document.getElementById('coachContent');
+  const stats = Mastery.getOverallStats();
+  c.innerHTML = `
+    <div class="question-card" style="text-align:center">
+      <div style="font-size:3rem;margin-bottom:12px">🎯</div>
+      <div style="font-size:1.1rem;font-weight:600;margin-bottom:16px">Analyzing your progress…</div>
+      <div style="display:flex;justify-content:center;gap:24px;margin-bottom:16px">
+        <div><div style="font-family:var(--font-display);font-size:1.8rem;font-weight:900;color:var(--green)">${stats.learned}</div><div style="font-size:.75rem;color:var(--muted)">Learned</div></div>
+        <div><div style="font-family:var(--font-display);font-size:1.8rem;font-weight:900;color:var(--accent2)">${stats.learning}</div><div style="font-size:.75rem;color:var(--muted)">In Progress</div></div>
+        <div><div style="font-family:var(--font-display);font-size:1.8rem;font-weight:900;color:var(--blue)">${stats.reviewDue}</div><div style="font-size:.75rem;color:var(--muted)">Due Review</div></div>
+        <div><div style="font-family:var(--font-display);font-size:1.8rem;font-weight:900;color:var(--muted)">${stats.total - stats.learned - stats.learning}</div><div style="font-size:.75rem;color:var(--muted)">Not Started</div></div>
+      </div>
+      <div id="coachAdvice" style="text-align:left"><div style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.85rem;justify-content:center"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div> AI is analyzing your learning patterns…</div></div>
+    </div>`;
+
+  try {
+    const mastery = Mastery.getMasteryData();
+    const advice = await AI.getStudyRecommendation(mastery);
+    document.getElementById('coachAdvice').innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;line-height:1.7;font-size:.92rem">
+        <div style="font-weight:600;color:var(--accent);margin-bottom:8px">🧑‍🏫 Profesora Luna says:</div>
+        ${advice}
+      </div>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
+        <button class="btn btn-primary" onclick="continueLearning()">▶ Continue Learning</button>
+        <button class="btn btn-secondary" onclick="startReviewSession()">🔄 Review Weak Words</button>
+        <button class="btn btn-secondary" onclick="openAIQuiz()">🧠 AI Quiz</button>
+      </div>`;
+  } catch (e) {
+    document.getElementById('coachAdvice').innerHTML = `<div class="no-key-banner">❌ ${e.message}</div>`;
+  }
+}
+
+// ── AUTH UI ───────────────────────────────────────────────────────────────
 function renderAuthUI() {
   const area = document.getElementById('auth-area');
   const user = Auth.getUser();

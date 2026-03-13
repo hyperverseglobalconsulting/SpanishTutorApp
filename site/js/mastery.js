@@ -147,11 +147,12 @@ const Mastery = (() => {
       levels[l]++;
     }
     levels[0] = total - Object.values(mastery).length;
+    const learning = Object.values(mastery).filter(l => l >= 1 && l <= 2).length;
     const learned = Object.values(mastery).filter(l => l >= 3).length;
     const mastered = Object.values(mastery).filter(l => l >= 5).length;
     const reviewDue = getWordsDueForReview().length;
 
-    return { total, levels, learned, mastered, reviewDue };
+    return { total, levels, learning, learned, mastered, reviewDue };
   }
 
   function getStreakDays() {
