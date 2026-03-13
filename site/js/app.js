@@ -1,524 +1,614 @@
-// ── STATE ─────────────────────────────────────────────────────────────────────
-let state = {
-  mode:'home', cat:'all', priority:'all',
-  learned: Progress.getLearned(),
-  streak: Progress.getStreak(),
-  lastScore: Progress.getLastScore(),
-  quizQ:[], quizIdx:0, quizCorrect:0,
-  fcIdx:0, fcDeck:[],
-  matchSel:null, matchTimer:null, matchStart:0, matchMatched:0,
-};
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function shuffle(a) { return [...a].sort(() => Math.random() - 0.5); }
+function pick(arr, n) { return shuffle(arr).slice(0, n); }
 
-function save(){
-  Progress.updateStreak(state.streak);
-  if(state.lastScore) Progress.updateLastScore(state.lastScore);
-}
-
-// ── TTS ENGINE ───────────────────────────────────────────────────────────────
-const ttsCache = {};
-let ttsAudio = null;
-let ttsActiveBtnId = null;
-
-async function speak(text, btnId){
-  if(!text) return;
-  if(ttsAudio){ ttsAudio.pause(); ttsAudio=null; }
-  if(ttsActiveBtnId){
-    const old = document.getElementById(ttsActiveBtnId);
-    if(old) old.classList.remove('playing');
-  }
-  const btn = btnId ? document.getElementById(btnId) : null;
-  // Use browser SpeechSynthesis
+// ── TTS ──────────────────────────────────────────────────────────────────────
+function speak(text, btnId) {
+  if (!text) return;
+  speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(text);
-  utt.lang = 'es-ES';
-  const voices = speechSynthesis.getVoices();
-  const esVoice = voices.find(v=>v.lang.startsWith('es'));
-  if(esVoice) utt.voice = esVoice;
-  utt.rate = 0.9;
-  if(btn){ btn.classList.add('playing'); utt.onend=()=>btn.classList.remove('playing'); }
+  utt.lang = 'es-ES'; utt.rate = 0.9;
+  const v = speechSynthesis.getVoices().find(v => v.lang.startsWith('es'));
+  if (v) utt.voice = v;
+  const btn = btnId ? document.getElementById(btnId) : null;
+  if (btn) { btn.classList.add('playing'); utt.onend = () => btn.classList.remove('playing'); }
   speechSynthesis.speak(utt);
 }
-
-function speakBtn(text, id, label='🔊'){
-  const safeText = text.replace(/'/g,"\\'");
-  return `<button class="speak-btn" id="${id}" onclick="speak('${safeText}','${id}')">${label}</button>`;
+function speakBtn(text, id, label = '🔊') {
+  const safe = (text || '').replace(/'/g, "\\'");
+  return `<button class="speak-btn" id="${id}" onclick="event.stopPropagation();speak('${safe}','${id}')">${label}</button>`;
 }
 
-// ── FILTER VOCAB ─────────────────────────────────────────────────────────────
-function filteredVocab(){
-  return VOCAB.filter(w=>{
-    if(state.cat!=='all' && w.category!==state.cat) return false;
-    if(state.priority!=='all' && w.priority!==state.priority) return false;
-    return true;
-  });
+// ── SCREEN ROUTER ────────────────────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById('screen-' + id);
+  if (el) el.classList.add('active');
+  if (id === 'dashboard') renderDashboard();
+  updateStats();
 }
 
-function shuffle(a){return [...a].sort(()=>Math.random()-.5)}
-function pick(arr,n){return shuffle(arr).slice(0,n)}
+// ── STATS ────────────────────────────────────────────────────────────────────
+function updateStats() {
+  const s = Mastery.getOverallStats();
+  document.getElementById('statTotal').textContent = s.total;
+  document.getElementById('statLearned').textContent = s.learned;
+  document.getElementById('statStreak').textContent = Mastery.getStreakDays();
+  document.getElementById('statToday').textContent = Mastery.getTodayWordCount();
+  document.getElementById('statReview').textContent = s.reviewDue;
+  const rc = document.getElementById('reviewCount');
+  if (rc) rc.textContent = s.reviewDue;
+}
 
-// ── SIDEBAR INIT ─────────────────────────────────────────────────────────────
-function initSidebar(){
-  const cats = [...new Set(VOCAB.map(w=>w.category))];
-  const list = document.getElementById('catList');
-  list.innerHTML = cats.map(c=>{
-    const n = VOCAB.filter(w=>w.category===c).length;
-    return `<button class="cat-btn" data-cat="${c}"><span>${c.replace(/^\d+\.\s*/,'')}</span><span class="cat-badge">${n}</span></button>`;
+// ── DASHBOARD ────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  renderPhaseMap();
+  renderScenarioCards();
+  updateStats();
+}
+
+function renderPhaseMap() {
+  const mastery = Mastery.getMasteryData();
+  const phases = Curriculum.getPhases();
+  const container = document.getElementById('phaseMap');
+  let html = '';
+
+  for (const phase of phases) {
+    const unlocked = Curriculum.isPhaseUnlocked(phase.phase, mastery);
+    const units = Curriculum.getPhaseUnits(phase.phase);
+
+    html += `<div style="margin-bottom:24px;opacity:${unlocked ? 1 : 0.5}">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <span style="font-size:1.4rem">${phase.icon}</span>
+        <span style="font-family:var(--font-display);font-size:1.1rem;font-weight:700">Phase ${phase.phase}: ${phase.title}</span>
+        ${!unlocked ? '<span style="font-size:.75rem;color:var(--muted);background:var(--card);padding:3px 10px;border-radius:12px;border:1px solid var(--border)">🔒 Complete Phase ' + (phase.phase - 1) + ' first</span>' : ''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">`;
+
+    for (const unit of units) {
+      const unitUnlocked = Curriculum.isUnitUnlocked(unit.id, mastery);
+      const progress = Curriculum.getUnitProgress(unit.id, mastery);
+      const stage = Curriculum.getCurrentStage(unit.id, mastery);
+      const stageInfo = Curriculum.STAGES.find(s => s.id === stage);
+      const done = progress >= 95;
+
+      html += `<div class="quick-card" style="--accent-c:${done ? 'var(--green)' : unitUnlocked ? 'var(--accent)' : 'var(--dim)'};padding:16px;cursor:${unitUnlocked ? 'pointer' : 'default'};opacity:${unitUnlocked ? 1 : 0.45}"
+        ${unitUnlocked ? `onclick="startUnit(${unit.id})"` : ''}>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Unit ${unit.id}</span>
+          ${done ? '<span style="font-size:.9rem">✅</span>' : !unitUnlocked ? '<span style="font-size:.8rem">🔒</span>' : ''}
+        </div>
+        <div style="font-weight:600;font-size:.9rem;margin-bottom:6px">${unit.title}</div>
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">${unit.words.length} words · ${stageInfo ? stageInfo.icon + ' ' + stageInfo.label : ''}</div>
+        <div style="background:var(--dim);border-radius:3px;height:4px;overflow:hidden">
+          <div style="height:100%;width:${progress}%;background:${done ? 'var(--green)' : 'var(--accent)'};border-radius:3px;transition:width .3s"></div>
+        </div>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:4px;text-align:right">${progress}%</div>
+      </div>`;
+    }
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+}
+
+function renderScenarioCards() {
+  const mastery = Mastery.getMasteryData();
+  const scenarios = Curriculum.getScenarios();
+  const container = document.getElementById('scenarioCards');
+  container.innerHTML = scenarios.map(s => {
+    const unlocked = Curriculum.isScenarioUnlocked(s.id, mastery);
+    return `<div class="quick-card" style="--accent-c:${unlocked ? 'var(--purple)' : 'var(--dim)'};opacity:${unlocked ? 1 : 0.45};cursor:${unlocked ? 'pointer' : 'default'}"
+      ${unlocked ? `onclick="openScenario('${s.id}')"` : ''}>
+      <div class="qc-icon">${s.icon}</div>
+      <div class="qc-title">${s.title} ${!unlocked ? '🔒' : ''}</div>
+      <div class="qc-desc">${s.desc}</div>
+      ${!unlocked ? `<div style="font-size:.7rem;color:var(--muted);margin-top:6px">Unlocks after Phase ${s.unlockPhase}</div>` : ''}
+    </div>`;
   }).join('');
-
-  document.querySelectorAll('.cat-btn').forEach(b=>{
-    b.addEventListener('click',()=>{
-      document.querySelectorAll('.cat-btn').forEach(x=>x.classList.remove('active'));
-      b.classList.add('active');
-      state.cat = b.dataset.cat;
-    });
-  });
-  document.querySelectorAll('.ppill').forEach(b=>{
-    b.addEventListener('click',()=>{
-      document.querySelectorAll('.ppill').forEach(x=>x.classList.remove('active'));
-      b.classList.add('active');
-      state.priority = b.dataset.p;
-    });
-  });
-  document.querySelectorAll('.mode-btn').forEach(b=>{
-    b.addEventListener('click',()=>startMode(b.dataset.mode));
-  });
-  updateStats();
 }
 
-function updateStats(){
-  document.getElementById('statTotal').textContent = filteredVocab().length;
-  document.getElementById('statLearned').textContent = state.learned.size;
-  document.getElementById('statStreak').textContent = state.streak;
-  document.getElementById('statScore').textContent = state.lastScore||'—';
-}
-
-// ── SCREEN ROUTING ────────────────────────────────────────────────────────────
-function showScreen(id){
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  document.getElementById('screen-'+id).classList.add('active');
-  document.querySelectorAll('.mode-btn').forEach(b=>{
-    b.classList.toggle('active', b.dataset.mode===id);
-  });
-  state.mode=id;
-  updateStats();
-}
-
-function showHome(){showScreen('home')}
-
-function startMode(mode){
-  showScreen(mode);
-  if(mode==='flashcard') startFlashcards();
-  else if(mode==='mcq') startMCQ();
-  else if(mode==='fill') startFill();
-  else if(mode==='match') startMatch();
-  else if(mode==='aiquiz') startAIQuiz();
-}
-
-// ── UTILS ─────────────────────────────────────────────────────────────────────
-function questionCard(badge, qText, hint, bodyHTML){
-  return `<div class="question-card">
-    <div class="q-type-badge">${badge}</div>
-    <div class="q-text">${qText}</div>
-    ${hint?`<div class="q-hint">${hint}</div>`:''}
-    ${bodyHTML}
-    <div class="feedback-box" id="feedback"></div>
-    <button class="next-btn" id="nextBtn" onclick="nextQuestion()">Next →</button>
-  </div>`;
-}
-
-function showFeedback(ok, msg){
-  const fb = document.getElementById('feedback');
-  fb.className = 'feedback-box show ' + (ok?'ok':'bad');
-  fb.innerHTML = msg;
-  const nb = document.getElementById('nextBtn');
-  if(nb) nb.classList.add('show');
-}
-
-function resultCard(correct, total, onRetry){
-  const pct = Math.round(correct/total*100);
-  state.lastScore = pct+'%';
-  if(pct>=70) state.streak++;
-  else state.streak=0;
-  save(); updateStats();
-  Progress.recordQuiz(state.mode, correct, total);
-  return `<div class="result-card">
-    <div class="result-score">${pct}%</div>
-    <div class="result-label">${correct} / ${total} correct · ${pct>=80?'🌟 Excellent!':pct>=60?'👍 Good job!':'📚 Keep practising!'}</div>
-    <div class="result-actions">
-      <button class="btn btn-primary" onclick="${onRetry}">🔄 Try Again</button>
-      <button class="btn btn-secondary" onclick="showHome()">🏠 Home</button>
-    </div>
-  </div>`;
-}
-
-// ── FLASHCARDS ────────────────────────────────────────────────────────────────
-function startFlashcards(){
-  state.fcDeck = shuffle(filteredVocab());
-  state.fcIdx = 0;
-  renderFlashcard();
-}
-
-function renderFlashcard(){
-  const deck = state.fcDeck;
-  if(state.fcIdx >= deck.length){
-    document.getElementById('fc-content').innerHTML = resultCard(
-      deck.filter(w=>state.learned.has(w.spanish)).length, deck.length, 'startFlashcards()');
-    return;
-  }
-  const w = deck[state.fcIdx];
-  const pct = Math.round(state.fcIdx/deck.length*100);
-  document.getElementById('fc-progress').style.width = pct+'%';
-  document.getElementById('fc-content').innerHTML = `
-    <div class="flashcard-wrap">
-      <div class="flashcard" id="fc" onclick="this.classList.toggle('flipped')">
-        <div class="fc-face fc-front">
-          <div class="fc-word">${w.spanish}</div>
-          <div class="fc-sub">${w.pos}${w.notes?' · '+w.notes:''} · ${w.priority}</div>
-          <div class="tts-row" style="justify-content:center;margin-top:10px" onclick="event.stopPropagation()">
-            ${speakBtn(w.spanish,'tts-fc-word','🔊 Word')}
-            ${w.example_es ? speakBtn(w.example_es,'tts-fc-ex','🔊 Sentence') : ''}
-          </div>
-          <div class="fc-sub" style="margin-top:8px;color:var(--dim)">Click card to reveal</div>
-        </div>
-        <div class="fc-face fc-back">
-          <div class="fc-word" style="font-size:1.6rem">${w.english}</div>
-          <div class="fc-sub">${w.category.replace(/^\d+\.\s*/,'')}</div>
-          ${w.example_es?`<div class="fc-example"><i>${w.example_es}</i><br/><span style="color:var(--dim)">${w.example_en}</span></div>`:''}
-        </div>
-      </div>
-    </div>
-    <div class="fc-controls">
-      <button class="fc-btn skip" onclick="fcNext(false)">👎 Still learning</button>
-      <button class="fc-btn know" onclick="fcNext(true)">✓ I know this</button>
-    </div>
-    <div class="fc-counter">${state.fcIdx+1} / ${deck.length}</div>`;
-  setTimeout(()=>speak(w.spanish,'tts-fc-word'), 300);
-}
-
-function fcNext(know){
-  const w = state.fcDeck[state.fcIdx];
-  if(know){ state.learned.add(w.spanish); Progress.markLearned(w.spanish); }
-  state.fcIdx++;
-  renderFlashcard();
-}
-
-// ── MCQ ───────────────────────────────────────────────────────────────────────
-function startMCQ(){
-  const pool = shuffle(filteredVocab()).slice(0,15);
-  state.quizQ = pool; state.quizIdx=0; state.quizCorrect=0;
-  renderMCQ();
-}
-
-function renderMCQ(){
-  if(state.quizIdx >= state.quizQ.length){
-    document.getElementById('mcq-content').innerHTML = resultCard(state.quizCorrect, state.quizQ.length, 'startMCQ()');
-    return;
-  }
-  const w = state.quizQ[state.quizIdx];
-  const pct = Math.round(state.quizIdx/state.quizQ.length*100);
-  document.getElementById('mcq-progress').style.width = pct+'%';
-
-  const others = shuffle(VOCAB.filter(x=>x.spanish!==w.spanish)).slice(0,3);
-  const options = shuffle([w, ...others]);
-  const letters = ['A','B','C','D'];
-
-  document.getElementById('mcq-content').innerHTML = questionCard(
-    '🎯 Multiple Choice',
-    `What does <strong style="color:var(--accent);font-family:var(--font-display);font-size:1.3rem">${w.spanish}</strong> mean?
-     <span style="display:inline-block;margin-left:8px;vertical-align:middle">${speakBtn(w.spanish,'tts-mcq-word')}</span>`,
-    w.pos + (w.notes?' · '+w.notes:''),
-    `<div class="options-grid">
-      ${options.map((o,i)=>`
-        <button class="option" onclick="checkMCQ(this,'${o.spanish}','${w.spanish}')">
-          <span class="opt-letter">${letters[i]}</span>${o.english}
-        </button>`).join('')}
-    </div>`
-  );
-  window.nextQuestion = ()=>{state.quizIdx++; renderMCQ()};
-  setTimeout(()=>speak(w.spanish,'tts-mcq-word'), 300);
-}
-
-function checkMCQ(btn, chosen, correct){
-  document.querySelectorAll('.option').forEach(b=>b.disabled=true);
-  const w = state.quizQ[state.quizIdx];
-  if(chosen===correct){
-    btn.classList.add('correct');
-    state.quizCorrect++;
-    state.learned.add(correct); Progress.markLearned(correct);
-    const exHtml = w.example_es ? `<br/><i>${w.example_es}</i> — ${w.example_en} ${speakBtn(w.example_es,'tts-mcq-fb','🔊')}` : '';
-    showFeedback(true,`✅ Correct! <b>${w.spanish}</b> = <b>${w.english}</b>${exHtml}`);
-    if(w.example_es) setTimeout(()=>speak(w.example_es,'tts-mcq-fb'),400);
-  } else {
-    btn.classList.add('wrong');
-    document.querySelectorAll('.option').forEach(b=>{
-      if(b.onclick.toString().includes(`'${correct}'`)) b.classList.add('correct');
-    });
-    const exHtml = w.example_es ? `<br/><i>${w.example_es}</i> — ${w.example_en} ${speakBtn(w.example_es,'tts-mcq-fb','🔊')}` : '';
-    showFeedback(false,`❌ The answer was <b>${w.english}</b>${exHtml}`);
-    if(w.example_es) setTimeout(()=>speak(w.example_es,'tts-mcq-fb'),400);
-  }
-}
-
-// ── FILL IN THE BLANK ─────────────────────────────────────────────────────────
-function startFill(){
-  const pool = shuffle(filteredVocab().filter(w=>w.example_es && w.example_es.length>5)).slice(0,12);
-  state.quizQ = pool; state.quizIdx=0; state.quizCorrect=0;
-  renderFill();
-}
-
-function renderFill(){
-  if(state.quizIdx >= state.quizQ.length){
-    document.getElementById('fill-content').innerHTML = resultCard(state.quizCorrect, state.quizQ.length, 'startFill()');
-    return;
-  }
-  const w = state.quizQ[state.quizIdx];
-  const pct = Math.round(state.quizIdx/state.quizQ.length*100);
-  document.getElementById('fill-progress').style.width = pct+'%';
-
-  const re = new RegExp(w.spanish.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i');
-  const blanked = w.example_es.replace(re,'<span style="color:var(--accent);font-weight:700">______</span>');
-
-  window.nextQuestion = ()=>{state.quizIdx++; renderFill()};
-
-  document.getElementById('fill-content').innerHTML = questionCard(
-    '✏️ Fill in the Blank',
-    `Complete the sentence: <br/><span style="font-size:1.05rem;margin-top:6px;display:block">${blanked}</span>
-     <span style="display:inline-block;margin-top:6px">${speakBtn(w.example_es,'tts-fill-sent','🔊 Hear sentence')}</span>`,
-    `Hint: ${w.english} (${w.pos})`,
-    `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <input class="fill-input" id="fillAns" placeholder="Type the Spanish word…" style="max-width:280px"
-        onkeydown="if(event.key==='Enter') checkFill()"/>
-      <button class="submit-btn" onclick="checkFill()">Check ✓</button>
-    </div>`
-  );
-  setTimeout(()=>document.getElementById('fillAns')?.focus(),50);
-}
-
-function checkFill(){
-  const inp = document.getElementById('fillAns');
-  if(!inp) return;
-  const ans = inp.value.trim().toLowerCase();
-  const w = state.quizQ[state.quizIdx];
-  const correct = w.spanish.toLowerCase();
-  const norm = s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  if(norm(ans)===norm(correct) || ans===correct){
-    inp.classList.add('correct');
-    state.quizCorrect++;
-    state.learned.add(w.spanish); Progress.markLearned(w.spanish);
-    showFeedback(true,`✅ Correct! <b>${w.spanish}</b> — ${w.english}<br/><i>${w.example_es}</i> ${speakBtn(w.example_es,'tts-fill-fb','🔊')}`);
-    setTimeout(()=>speak(w.example_es,'tts-fill-fb'),400);
-  } else {
-    inp.classList.add('wrong');
-    inp.disabled=true;
-    showFeedback(false,`❌ Answer: <b>${w.spanish}</b> — ${w.english}<br/><i>${w.example_es}</i> ${speakBtn(w.example_es,'tts-fill-fb','🔊')}`);
-    setTimeout(()=>speak(w.example_es,'tts-fill-fb'),400);
-  }
-  inp.disabled=true;
-  document.querySelector('.submit-btn').disabled=true;
-}
-
-// ── MATCH THE WORDS ───────────────────────────────────────────────────────────
-function startMatch(){
-  clearInterval(state.matchTimer);
-  const pool = pick(filteredVocab(), 8);
-  state.matchSel = null; state.matchMatched = 0;
-  state.matchStart = Date.now();
-
-  const lefts = shuffle(pool.map(w=>({id:w.spanish, text:w.spanish, type:'es'})));
-  const rights = shuffle(pool.map(w=>({id:w.spanish, text:w.english, type:'en'})));
-
-  document.getElementById('match-content').innerHTML = `
-    <div class="match-grid">
-      <div class="match-col" id="match-left">
-        ${lefts.map(w=>`<div class="match-item" data-id="${w.id}" data-type="es" onclick="matchClick(this)">${w.text}</div>`).join('')}
-      </div>
-      <div class="match-col" id="match-right">
-        ${rights.map(w=>`<div class="match-item" data-id="${w.id}" data-type="en" onclick="matchClick(this)">${w.text}</div>`).join('')}
-      </div>
-    </div>
-    <div id="match-result" style="margin-top:16px"></div>`;
-
-  state.matchTimer = setInterval(()=>{
-    const s = Math.round((Date.now()-state.matchStart)/1000);
-    document.getElementById('match-timer').textContent = `⏱ ${s}s`;
-  },500);
-}
-
-let matchFirstSel = null;
-function matchClick(el){
-  if(el.classList.contains('matched')) return;
-  if(el.dataset.type==='es') speak(el.dataset.id, null);
-  if(!matchFirstSel){
-    document.querySelectorAll('.match-item').forEach(x=>x.classList.remove('selected'));
-    el.classList.add('selected');
-    matchFirstSel = el;
-  } else {
-    if(matchFirstSel===el){ el.classList.remove('selected'); matchFirstSel=null; return; }
-    const a = matchFirstSel, b = el;
-    if(a.dataset.id===b.dataset.id && a.dataset.type!==b.dataset.type){
-      a.classList.remove('selected'); a.classList.add('matched');
-      b.classList.add('matched');
-      state.matchMatched++;
-      state.learned.add(a.dataset.id); Progress.markLearned(a.dataset.id);
-      matchFirstSel = null;
-      if(state.matchMatched===8){
-        clearInterval(state.matchTimer);
-        const t = Math.round((Date.now()-state.matchStart)/1000);
-        state.streak++; save(); updateStats();
-        Progress.recordQuiz('match', 8, 8);
-        document.getElementById('match-result').innerHTML = `
-          <div class="result-card" style="max-width:400px">
-            <div class="result-score">⚡ ${t}s</div>
-            <div class="result-label">All 8 pairs matched! 🎉</div>
-            <div class="result-actions">
-              <button class="btn btn-primary" onclick="startMatch()">🔄 New Round</button>
-              <button class="btn btn-secondary" onclick="showHome()">🏠 Home</button>
-            </div>
-          </div>`;
+// ── CONTINUE LEARNING ────────────────────────────────────────────────────────
+function continueLearning() {
+  const mastery = Mastery.getMasteryData();
+  const units = Curriculum.getUnits();
+  // Find first unlocked unit that isn't complete
+  for (const unit of units) {
+    if (Curriculum.isUnitUnlocked(unit.id, mastery)) {
+      const progress = Curriculum.getUnitProgress(unit.id, mastery);
+      if (progress < 95) {
+        startUnit(unit.id);
+        return;
       }
-    } else {
-      a.classList.add('wrong-flash'); b.classList.add('wrong-flash');
-      setTimeout(()=>{a.classList.remove('wrong-flash','selected'); b.classList.remove('wrong-flash');}, 400);
-      matchFirstSel = null;
     }
   }
+  // All done — suggest review
+  startReviewSession();
 }
 
-// ── AI QUIZ ───────────────────────────────────────────────────────────────────
-let aiQuestions = [], aiIdx=0, aiCorrect=0;
+// ── UNIT LESSON ──────────────────────────────────────────────────────────────
+function startUnit(unitId) {
+  const info = LessonEngine.startLesson(unitId);
+  if (!info) return;
+  const stageInfo = Curriculum.STAGES.find(s => s.id === info.stage);
+  document.getElementById('lessonTitle').textContent = `${info.unit.phaseIcon} ${info.unit.title}`;
+  document.getElementById('lessonStage').textContent = `${stageInfo.icon} ${stageInfo.label} — ${stageInfo.desc}`;
+  showScreen('lesson');
+  renderExercise();
+}
 
-async function startAIQuiz(){
-  if(!Auth.isLoggedIn()){
-    document.getElementById('aiquiz-content').innerHTML = `
-      <div class="no-key-banner">⚠️ Please sign in to use the AI Quiz feature.</div>`;
+function startReviewSession() {
+  const info = LessonEngine.startReview();
+  if (!info || info.total === 0) {
+    alert('No words due for review right now. Great job!');
     return;
   }
-
-  document.getElementById('aiquiz-content').innerHTML = `
-    <div class="loading-wrap">
-      <div class="spinner"></div>
-      <div class="loading-text">GPT-4o mini is crafting your quiz…</div>
-    </div>`;
-
-  const pool = pick(filteredVocab(), 6);
-  const wordList = pool.map(w=>`${w.spanish} = ${w.english} (${w.pos}; example: "${w.example_es}")`).join('\n');
-
-  const prompt = `You are a Spanish teacher creating an IGCSE-level quiz for a 9th-grade student.
-
-Given these Spanish words:
-${wordList}
-
-Generate exactly 6 quiz questions as a JSON array. Mix these types: "fill_blank" (complete a Spanish sentence), "mcq" (4 options, test English meaning or Spanish usage), "translate" (translate English to Spanish).
-
-Each question object must have:
-- "type": "fill_blank" | "mcq" | "translate"
-- "question": the question text (for fill_blank: show the sentence with ___ where the word goes)
-- "word": the Spanish word being tested
-- "hint": a brief hint (pos or category)
-- "options": array of 4 strings (for mcq only)
-- "answer": the correct answer string
-- "explanation": 1-sentence explanation
-
-Return ONLY valid JSON array, no markdown.`;
-
-  try {
-    const token = Auth.getIdToken();
-    const res = await fetch(`${APP_CONFIG.API_ENDPOINT}/api/chat`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-      body: JSON.stringify({
-        messages:[{role:'user', content:prompt}],
-      })
-    });
-    if(!res.ok) throw new Error('API error '+res.status);
-    const data = await res.json();
-    aiQuestions = JSON.parse(data.reply);
-    aiIdx=0; aiCorrect=0;
-    renderAIQuestion();
-  } catch(e){
-    document.getElementById('aiquiz-content').innerHTML = `
-      <div class="no-key-banner">❌ Error: ${e.message}</div>
-      <button class="btn btn-primary" style="margin-top:16px" onclick="startAIQuiz()">Retry</button>`;
-  }
+  document.getElementById('lessonTitle').textContent = '🔄 Spaced Review';
+  document.getElementById('lessonStage').textContent = `${info.wordCount} words due — mixed exercises`;
+  showScreen('lesson');
+  renderExercise();
 }
 
-function renderAIQuestion(){
-  if(aiIdx >= aiQuestions.length){
-    document.getElementById('aiquiz-content').innerHTML = resultCard(aiCorrect, aiQuestions.length, 'startAIQuiz()');
+function exitLesson() {
+  showScreen('dashboard');
+}
+
+function renderExercise() {
+  if (LessonEngine.isComplete()) {
+    showResults();
     return;
   }
-  const q = aiQuestions[aiIdx];
-  const pct = Math.round(aiIdx/aiQuestions.length*100);
-  document.getElementById('ai-progress').style.width=pct+'%';
-  window.nextQuestion = ()=>{aiIdx++; renderAIQuestion()};
+  const ex = LessonEngine.getCurrentExercise();
+  const prog = LessonEngine.getProgress();
+  const pct = Math.round((prog.current / prog.total) * 100);
+  document.getElementById('lessonProgress').style.width = pct + '%';
+  document.getElementById('lessonCounter').textContent = `${prog.current + 1}/${prog.total}`;
 
-  let body='';
-  if(q.type==='mcq' && q.options){
-    const letters=['A','B','C','D'];
-    body=`<div class="options-grid">${q.options.map((o,i)=>`
-      <button class="option" onclick="checkAIOption(this,'${escQ(o)}','${escQ(q.answer)}','${escQ(q.explanation)}')">
-        <span class="opt-letter">${letters[i]}</span>${o}
-      </button>`).join('')}</div>`;
-  } else {
-    body=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <input class="fill-input" id="aiAns" placeholder="Type your answer…" style="max-width:320px"
-        onkeydown="if(event.key==='Enter') checkAIFill()"/>
-      <button class="submit-btn" onclick="checkAIFill()">Check ✓</button>
-    </div>`;
+  const content = document.getElementById('lessonContent');
+
+  if (ex.type === 'learn') {
+    renderLearnCard(content, ex);
+  } else if (ex.type === 'mcq') {
+    renderMCQCard(content, ex);
+  } else if (ex.type === 'produce') {
+    renderProduceCard(content, ex);
+  } else if (ex.type === 'fill') {
+    renderFillCard(content, ex);
+  } else if (ex.type === 'translate') {
+    renderTranslateCard(content, ex);
   }
-  const badge = q.type==='mcq'?'🎯 Multiple Choice':q.type==='fill_blank'?'✏️ Fill in Blank':'🌐 Translate';
-  const qWithTTS = q.question + (q.word ? ` <span style="display:inline-block;margin-left:6px;vertical-align:middle">${speakBtn(q.word,'tts-ai-word')}</span>` : '');
-  document.getElementById('aiquiz-content').innerHTML = questionCard(badge, qWithTTS, `Hint: ${q.hint}`, body);
-  if(q.type!=='mcq') setTimeout(()=>document.getElementById('aiAns')?.focus(),50);
-  if(q.word) setTimeout(()=>speak(q.word,'tts-ai-word'),300);
 }
 
-function escQ(s){ return (s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;') }
+// ── EXERCISE RENDERERS ───────────────────────────────────────────────────────
+function renderLearnCard(container, ex) {
+  const w = ex.wordObj;
+  container.innerHTML = `
+    <div class="question-card" style="text-align:center">
+      <div class="q-type-badge">📖 New Word ${ex.index}/${ex.total}</div>
+      <div style="font-family:var(--font-display);font-size:2.2rem;font-weight:900;color:var(--accent);margin:16px 0">${w.spanish}</div>
+      <div style="margin:4px 0">${speakBtn(w.spanish, 'tts-learn-' + ex.index, '🔊 Listen')}</div>
+      <div style="font-size:1.2rem;margin:12px 0;color:var(--text)">${w.english}</div>
+      <div style="font-size:.85rem;color:var(--muted);margin-bottom:8px">${w.pos}${w.notes ? ' · ' + w.notes : ''} · ${w.priority}</div>
+      ${w.example_es ? `
+        <div style="background:var(--surface);border-radius:10px;padding:14px;margin:12px 0;text-align:left;border:1px solid var(--border)">
+          <div style="font-style:italic;margin-bottom:4px">${w.example_es} ${speakBtn(w.example_es, 'tts-learn-ex-' + ex.index, '🔊')}</div>
+          <div style="color:var(--muted);font-size:.85rem">${w.example_en}</div>
+        </div>` : ''}
+      <button class="btn btn-primary" style="margin-top:16px" onclick="submitLearn()">Got it — Next →</button>
+    </div>`;
+  setTimeout(() => speak(w.spanish, 'tts-learn-' + ex.index), 300);
+}
 
-function checkAIOption(btn, chosen, correct, expl){
-  document.querySelectorAll('.option').forEach(b=>b.disabled=true);
-  const norm=s=>s.trim().toLowerCase();
-  if(norm(chosen)===norm(correct)){
-    btn.classList.add('correct'); aiCorrect++;
-    showFeedback(true,`✅ Correct! ${expl} ${speakBtn(aiQuestions[aiIdx].word,'tts-ai-fb','🔊')}`);
+function submitLearn() {
+  LessonEngine.submitAnswer('');
+  renderExercise();
+}
+
+function renderMCQCard(container, ex) {
+  const letters = ['A', 'B', 'C', 'D'];
+  const isEsToEn = ex.direction === 'es_to_en';
+  const badge = isEsToEn ? '👁️ What does this mean?' : '🧠 What is the Spanish?';
+  container.innerHTML = `
+    <div class="question-card">
+      <div class="q-type-badge">${badge}</div>
+      <div class="q-text">
+        <strong style="color:var(--accent);font-family:var(--font-display);font-size:1.4rem">${ex.prompt}</strong>
+        ${isEsToEn ? `<span style="display:inline-block;margin-left:8px">${speakBtn(ex.prompt, 'tts-mcq-q')}</span>` : ''}
+      </div>
+      <div class="q-hint">${ex.hint || ''}</div>
+      <div class="options-grid">
+        ${ex.options.map((o, i) => `
+          <button class="option" onclick="submitMCQ(this, '${o.replace(/'/g, "\\'")}')">
+            <span class="opt-letter">${letters[i]}</span>${o}
+          </button>`).join('')}
+      </div>
+      <div class="feedback-box" id="feedback"></div>
+      <button class="next-btn" id="nextBtn" onclick="renderExercise()">Next →</button>
+    </div>`;
+  if (isEsToEn) setTimeout(() => speak(ex.prompt, 'tts-mcq-q'), 200);
+}
+
+function submitMCQ(btn, chosen) {
+  document.querySelectorAll('.option').forEach(b => b.disabled = true);
+  const result = LessonEngine.submitAnswer(chosen);
+  if (result.correct) {
+    btn.classList.add('correct');
+    showFeedback(true, `✅ Correct! ${result.explanation}
+      ${result.word ? speakBtn(result.word.spanish, 'tts-mcq-fb', '🔊') : ''}`);
   } else {
     btn.classList.add('wrong');
-    document.querySelectorAll('.option').forEach(b=>{
-      if(b.textContent.trim().slice(1).trim()===correct.trim()) b.classList.add('correct');
+    document.querySelectorAll('.option').forEach(b => {
+      if (b.textContent.trim().slice(1).trim() === result.answer) b.classList.add('correct');
     });
-    showFeedback(false,`❌ Answer: <b>${correct}</b>. ${expl} ${speakBtn(aiQuestions[aiIdx].word,'tts-ai-fb','🔊')}`);
+    showFeedback(false, `❌ Answer: <b>${result.answer}</b>. ${result.explanation}
+      ${result.word ? speakBtn(result.word.spanish, 'tts-mcq-fb', '🔊') : ''}`);
   }
-  const w = aiQuestions[aiIdx].word;
-  if(w) setTimeout(()=>speak(w,'tts-ai-fb'),400);
 }
 
-function checkAIFill(){
-  const inp = document.getElementById('aiAns');
-  const q = aiQuestions[aiIdx];
-  const norm=s=>s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  if(norm(inp.value)===norm(q.answer)){
-    inp.classList.add('correct'); aiCorrect++;
-    showFeedback(true,`✅ Correct! ${q.explanation} ${speakBtn(q.answer,'tts-aif-fb','🔊')}`);
-    setTimeout(()=>speak(q.answer,'tts-aif-fb'),400);
+function renderProduceCard(container, ex) {
+  container.innerHTML = `
+    <div class="question-card">
+      <div class="q-type-badge">✏️ Type the Spanish word</div>
+      <div class="q-text">How do you say: <strong style="color:var(--accent);font-size:1.2rem">${ex.prompt}</strong></div>
+      <div class="q-hint">${ex.hint || ''}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input class="fill-input" id="produceAns" placeholder="Type in Spanish…" style="max-width:300px"
+          onkeydown="if(event.key==='Enter') submitProduce()"/>
+        <button class="submit-btn" onclick="submitProduce()">Check ✓</button>
+      </div>
+      <div class="feedback-box" id="feedback"></div>
+      <button class="next-btn" id="nextBtn" onclick="renderExercise()">Next →</button>
+    </div>`;
+  setTimeout(() => document.getElementById('produceAns')?.focus(), 50);
+}
+
+function submitProduce() {
+  const inp = document.getElementById('produceAns');
+  if (!inp || !inp.value.trim()) return;
+  const result = LessonEngine.submitAnswer(inp.value);
+  inp.disabled = true;
+  document.querySelector('.submit-btn').disabled = true;
+  if (result.correct) {
+    inp.classList.add('correct');
+    showFeedback(true, `✅ Correct! <b>${result.answer}</b> ${result.explanation}
+      ${speakBtn(result.answer, 'tts-prod-fb', '🔊')}`);
+    setTimeout(() => speak(result.answer, 'tts-prod-fb'), 300);
   } else {
     inp.classList.add('wrong');
-    showFeedback(false,`❌ Answer: <b>${q.answer}</b>. ${q.explanation} ${speakBtn(q.answer,'tts-aif-fb','🔊')}`);
-    setTimeout(()=>speak(q.answer,'tts-aif-fb'),400);
+    showFeedback(false, `❌ Answer: <b>${result.answer}</b>. ${result.explanation}
+      ${speakBtn(result.answer, 'tts-prod-fb', '🔊')}`);
+    setTimeout(() => speak(result.answer, 'tts-prod-fb'), 300);
   }
-  inp.disabled=true;
-  document.querySelector('.submit-btn').disabled=true;
+}
+
+function renderFillCard(container, ex) {
+  container.innerHTML = `
+    <div class="question-card">
+      <div class="q-type-badge">💬 Complete the sentence</div>
+      <div class="q-text" style="font-size:1.05rem;line-height:1.7">${ex.prompt}</div>
+      <div class="q-hint">${ex.hint || ''}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input class="fill-input" id="fillAns" placeholder="Type the missing word…" style="max-width:300px"
+          onkeydown="if(event.key==='Enter') submitFill()"/>
+        <button class="submit-btn" onclick="submitFill()">Check ✓</button>
+      </div>
+      <div class="feedback-box" id="feedback"></div>
+      <button class="next-btn" id="nextBtn" onclick="renderExercise()">Next →</button>
+    </div>`;
+  setTimeout(() => document.getElementById('fillAns')?.focus(), 50);
+}
+
+function submitFill() {
+  const inp = document.getElementById('fillAns');
+  if (!inp || !inp.value.trim()) return;
+  const result = LessonEngine.submitAnswer(inp.value);
+  inp.disabled = true;
+  document.querySelector('.submit-btn').disabled = true;
+  if (result.correct) {
+    inp.classList.add('correct');
+    showFeedback(true, `✅ Correct! ${result.explanation}
+      ${speakBtn(result.word?.example_es || result.answer, 'tts-fill-fb', '🔊')}`);
+  } else {
+    inp.classList.add('wrong');
+    showFeedback(false, `❌ Answer: <b>${result.answer}</b>. ${result.explanation}
+      ${speakBtn(result.word?.example_es || result.answer, 'tts-fill-fb', '🔊')}`);
+  }
+}
+
+function renderTranslateCard(container, ex) {
+  container.innerHTML = `
+    <div class="question-card">
+      <div class="q-type-badge">🌐 Translate the key word</div>
+      <div class="q-text"><em>"${ex.prompt}"</em></div>
+      <div class="q-hint">${ex.hint || ''}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input class="fill-input" id="transAns" placeholder="Spanish word…" style="max-width:300px"
+          onkeydown="if(event.key==='Enter') submitTranslate()"/>
+        <button class="submit-btn" onclick="submitTranslate()">Check ✓</button>
+      </div>
+      <div class="feedback-box" id="feedback"></div>
+      <button class="next-btn" id="nextBtn" onclick="renderExercise()">Next →</button>
+    </div>`;
+  setTimeout(() => document.getElementById('transAns')?.focus(), 50);
+}
+
+function submitTranslate() {
+  const inp = document.getElementById('transAns');
+  if (!inp || !inp.value.trim()) return;
+  const result = LessonEngine.submitAnswer(inp.value);
+  inp.disabled = true;
+  document.querySelector('.submit-btn').disabled = true;
+  if (result.correct) {
+    inp.classList.add('correct');
+    showFeedback(true, `✅ Correct! <b>${result.answer}</b> ${result.explanation}`);
+  } else {
+    inp.classList.add('wrong');
+    showFeedback(false, `❌ Answer: <b>${result.answer}</b>. ${result.explanation}`);
+  }
+}
+
+function showFeedback(ok, msg) {
+  const fb = document.getElementById('feedback');
+  if (!fb) return;
+  fb.className = 'feedback-box show ' + (ok ? 'ok' : 'bad');
+  fb.innerHTML = msg;
+  const nb = document.getElementById('nextBtn');
+  if (nb) nb.classList.add('show');
+}
+
+// ── RESULTS ──────────────────────────────────────────────────────────────────
+function showResults() {
+  const r = LessonEngine.getResults();
+  const emoji = r.percentage >= 90 ? '🌟' : r.percentage >= 70 ? '👍' : '📚';
+  const msg = r.percentage >= 90 ? 'Outstanding!' : r.percentage >= 70 ? 'Good job! Stage cleared.' : 'Keep practising — you\'ll get there!';
+
+  let actions = `<button class="btn btn-secondary" onclick="showScreen('dashboard')">🏠 Dashboard</button>`;
+  if (r.unit) {
+    if (r.passed) {
+      actions = `<button class="btn btn-primary" onclick="startUnit(${r.unit.id})">▶ Next Stage</button>` + actions;
+    } else {
+      actions = `<button class="btn btn-primary" onclick="startUnit(${r.unit.id})">🔄 Try Again</button>` + actions;
+    }
+  } else {
+    actions = `<button class="btn btn-primary" onclick="startReviewSession()">🔄 More Review</button>` + actions;
+  }
+
+  document.getElementById('resultsContent').innerHTML = `
+    <div class="result-card">
+      <div style="font-size:3rem;margin-bottom:8px">${emoji}</div>
+      <div class="result-score">${r.percentage}%</div>
+      <div class="result-label">${r.correct} / ${r.total} correct · ${msg}</div>
+      ${r.unit ? `<div style="font-size:.85rem;color:var(--muted);margin:12px 0">Unit: ${r.unit.title} · Stage: ${r.stage}</div>` : ''}
+      <div class="result-actions" style="margin-top:20px">${actions}</div>
+    </div>`;
+  showScreen('results');
+}
+
+// ── SCENARIOS ────────────────────────────────────────────────────────────────
+function openScenario(id) {
+  const info = Scenarios.startScenario(id);
+  if (!info) return;
+  document.getElementById('scenarioTitle').textContent = `${info.scenario.icon} ${info.scenario.title}`;
+  document.getElementById('scenarioDialogue').innerHTML = '';
+  showScreen('scenario');
+  advanceScenario();
+}
+
+function advanceScenario() {
+  if (Scenarios.isComplete()) {
+    document.getElementById('scenarioInput').innerHTML = `
+      <div class="result-card" style="margin-top:16px">
+        <div class="result-score">🎉</div>
+        <div class="result-label">Conversation complete!</div>
+        <div class="result-actions">
+          <button class="btn btn-primary" onclick="openScenario('${Scenarios.getScenarioInfo().id}')">🔄 Replay</button>
+          <button class="btn btn-secondary" onclick="showScreen('dashboard')">🏠 Dashboard</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  const step = Scenarios.getCurrentStep();
+  const dlg = document.getElementById('scenarioDialogue');
+
+  if (step.role === 'tutor') {
+    const tid = 'tts-sc-' + Date.now();
+    dlg.innerHTML += `
+      <div style="display:flex;gap:10px;align-items:flex-start;max-width:85%">
+        <div style="width:36px;height:36px;border-radius:50%;background:var(--purple);display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0">🧑‍🏫</div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px 12px 12px 2px;padding:12px 16px">
+          <div style="font-size:.95rem">${step.es} ${speakBtn(step.es, tid, '🔊')}</div>
+          <div style="font-size:.8rem;color:var(--muted);margin-top:4px;font-style:italic">${step.en}</div>
+        </div>
+      </div>`;
+    Scenarios.advanceTutor();
+    setTimeout(advanceScenario, 100);
+    return;
+  }
+
+  // Student prompt
+  document.getElementById('scenarioInput').innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+      <div style="font-size:.85rem;color:var(--muted);margin-bottom:8px">💡 ${step.prompt}</div>
+      <div style="font-size:.8rem;color:var(--dim);margin-bottom:10px;font-style:italic">Hint: ${step.hint}</div>
+      <div style="display:flex;gap:10px">
+        <input class="fill-input" id="scenarioAns" placeholder="Type your response in Spanish…"
+          onkeydown="if(event.key==='Enter') submitScenarioResponse()" style="flex:1"/>
+        <button class="submit-btn" onclick="submitScenarioResponse()">Send →</button>
+      </div>
+    </div>`;
+  setTimeout(() => document.getElementById('scenarioAns')?.focus(), 50);
+}
+
+function submitScenarioResponse() {
+  const inp = document.getElementById('scenarioAns');
+  if (!inp || !inp.value.trim()) return;
+  const text = inp.value.trim();
+  const result = Scenarios.submitResponse(text);
+
+  const dlg = document.getElementById('scenarioDialogue');
+  dlg.innerHTML += `
+    <div style="display:flex;gap:10px;align-items:flex-start;max-width:85%;align-self:flex-end;margin-left:auto">
+      <div style="background:rgba(255,107,53,.15);border:1px solid rgba(255,107,53,.25);border-radius:12px 12px 2px 12px;padding:12px 16px">
+        <div style="font-size:.95rem">${text}</div>
+        ${!result.passed ? `<div style="font-size:.8rem;color:var(--accent2);margin-top:4px">💡 Try: <i>${result.key}</i></div>` : ''}
+      </div>
+      <div style="width:36px;height:36px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0">👤</div>
+    </div>`;
+
+  // Show tutor responses that were auto-added
+  const dialogue = Scenarios.getDialogue();
+  for (const d of dialogue.slice(-2)) {
+    if (d.role === 'tutor') {
+      dlg.innerHTML += `
+        <div style="display:flex;gap:10px;align-items:flex-start;max-width:85%">
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--purple);display:flex;align-items:center;justify-content:center;font-size:.9rem;flex-shrink:0">🧑‍🏫</div>
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:12px 12px 12px 2px;padding:12px 16px">
+            <div style="font-size:.95rem">${d.text} ${speakBtn(d.text, 'tts-sc-' + Date.now(), '🔊')}</div>
+            <div style="font-size:.8rem;color:var(--muted);margin-top:4px;font-style:italic">${d.translation}</div>
+          </div>
+        </div>`;
+    }
+  }
+
+  dlg.scrollTop = dlg.scrollHeight;
+  setTimeout(advanceScenario, 200);
+}
+
+// ── FREE PRACTICE (legacy random modes) ──────────────────────────────────────
+function startFreePractice(mode) {
+  // Reuse the lesson screen for free practice with random words
+  const cat = document.getElementById('fpCat')?.value || 'all';
+  const pri = document.getElementById('fpPriority')?.value || 'all';
+  let pool = VOCAB;
+  if (cat !== 'all') pool = pool.filter(w => w.category === cat);
+  if (pri !== 'all') pool = pool.filter(w => w.priority === pri);
+
+  if (pool.length < 4) { alert('Not enough words with this filter. Try a broader selection.'); return; }
+
+  // Build a temporary unit-like structure for LessonEngine
+  const words = shuffle(pool).slice(0, 15);
+  const stageMap = { mcq: 'recognise', fill: 'use', flashcard: 'learn', match: 'recognise', aiquiz: 'use' };
+
+  // For match mode — use special free practice
+  if (mode === 'match') { startFreeMatch(pool); return; }
+  if (mode === 'flashcard') { startFreeFlashcards(pool); return; }
+
+  // Create a mock unit in the curriculum
+  const mockUnit = { id: 999, phase: 0, phaseTitle: 'Practice', phaseIcon: '🎮', title: 'Free Practice', category: 'mixed', words, stages: ['recognise'] };
+  const info = LessonEngine.startLesson(999, stageMap[mode] || 'recognise');
+  // Override with our custom words
+  if (!info) return;
+  document.getElementById('lessonTitle').textContent = '🎮 Free Practice';
+  document.getElementById('lessonStage').textContent = `${mode.toUpperCase()} mode · ${pool.length} words available`;
+  showScreen('lesson');
+  renderExercise();
+}
+
+function startFreeMatch(pool) {
+  const words = pick(pool, 8);
+  const lefts = shuffle(words.map(w => ({ id: w.spanish, text: w.spanish, type: 'es' })));
+  const rights = shuffle(words.map(w => ({ id: w.spanish, text: w.english, type: 'en' })));
+  let matched = 0, firstSel = null, timer, start = Date.now();
+
+  document.getElementById('lessonTitle').textContent = '🔗 Match the Words';
+  document.getElementById('lessonStage').textContent = 'Pair Spanish with English';
+  document.getElementById('lessonProgress').style.width = '0%';
+  document.getElementById('lessonCounter').textContent = '0/8';
+  showScreen('lesson');
+
+  document.getElementById('lessonContent').innerHTML = `
+    <div class="match-grid">
+      <div class="match-col" id="ml">${lefts.map(w => `<div class="match-item" data-id="${w.id}" data-type="es">${w.text}</div>`).join('')}</div>
+      <div class="match-col" id="mr">${rights.map(w => `<div class="match-item" data-id="${w.id}" data-type="en">${w.text}</div>`).join('')}</div>
+    </div><div id="matchResult" style="margin-top:16px"></div>`;
+
+  timer = setInterval(() => {
+    const s = Math.round((Date.now() - start) / 1000);
+    document.getElementById('lessonCounter').textContent = `${matched}/8 · ${s}s`;
+  }, 500);
+
+  document.querySelectorAll('.match-item').forEach(el => {
+    el.addEventListener('click', () => {
+      if (el.classList.contains('matched')) return;
+      if (el.dataset.type === 'es') speak(el.dataset.id);
+      if (!firstSel) {
+        document.querySelectorAll('.match-item').forEach(x => x.classList.remove('selected'));
+        el.classList.add('selected'); firstSel = el;
+      } else {
+        if (firstSel === el) { el.classList.remove('selected'); firstSel = null; return; }
+        if (firstSel.dataset.id === el.dataset.id && firstSel.dataset.type !== el.dataset.type) {
+          firstSel.classList.remove('selected'); firstSel.classList.add('matched'); el.classList.add('matched');
+          matched++; Mastery.recordAnswer(firstSel.dataset.id, true, 'match');
+          document.getElementById('lessonProgress').style.width = (matched / 8 * 100) + '%';
+          firstSel = null;
+          if (matched === 8) {
+            clearInterval(timer);
+            const t = Math.round((Date.now() - start) / 1000);
+            document.getElementById('matchResult').innerHTML = `
+              <div class="result-card"><div class="result-score">⚡ ${t}s</div><div class="result-label">All matched!</div>
+              <div class="result-actions"><button class="btn btn-primary" onclick="startFreeMatch(VOCAB)">🔄 Again</button>
+              <button class="btn btn-secondary" onclick="showScreen('dashboard')">🏠 Dashboard</button></div></div>`;
+          }
+        } else {
+          firstSel.classList.add('wrong-flash'); el.classList.add('wrong-flash');
+          setTimeout(() => { firstSel.classList.remove('wrong-flash', 'selected'); el.classList.remove('wrong-flash'); firstSel = null; }, 400);
+        }
+      }
+    });
+  });
+}
+
+function startFreeFlashcards(pool) {
+  const deck = shuffle(pool).slice(0, 20);
+  let idx = 0;
+  document.getElementById('lessonTitle').textContent = '🃏 Flashcards';
+  document.getElementById('lessonStage').textContent = 'Flip to reveal';
+  showScreen('lesson');
+
+  function render() {
+    if (idx >= deck.length) {
+      document.getElementById('lessonContent').innerHTML = `
+        <div class="result-card"><div class="result-score">✅</div><div class="result-label">Deck complete!</div>
+        <div class="result-actions"><button class="btn btn-primary" onclick="startFreeFlashcards(VOCAB)">🔄 Again</button>
+        <button class="btn btn-secondary" onclick="showScreen('dashboard')">🏠 Dashboard</button></div></div>`;
+      return;
+    }
+    const w = deck[idx];
+    const pct = Math.round(idx / deck.length * 100);
+    document.getElementById('lessonProgress').style.width = pct + '%';
+    document.getElementById('lessonCounter').textContent = `${idx + 1}/${deck.length}`;
+    document.getElementById('lessonContent').innerHTML = `
+      <div class="flashcard-wrap"><div class="flashcard" id="fc" onclick="this.classList.toggle('flipped')">
+        <div class="fc-face fc-front"><div class="fc-word">${w.spanish}</div>
+          <div class="fc-sub">${w.pos}${w.notes ? ' · ' + w.notes : ''}</div>
+          <div style="margin-top:10px" onclick="event.stopPropagation()">${speakBtn(w.spanish, 'tts-fc-' + idx)}</div>
+          <div class="fc-sub" style="margin-top:8px;color:var(--dim)">Click to reveal</div></div>
+        <div class="fc-face fc-back"><div class="fc-word" style="font-size:1.6rem">${w.english}</div>
+          ${w.example_es ? `<div class="fc-example"><i>${w.example_es}</i><br/><span style="color:var(--dim)">${w.example_en}</span></div>` : ''}</div>
+      </div></div>
+      <div class="fc-controls">
+        <button class="fc-btn skip" onclick="window._fcNext(false)">👎 Still learning</button>
+        <button class="fc-btn know" onclick="window._fcNext(true)">✓ I know this</button>
+      </div>
+      <div class="fc-counter">${idx + 1} / ${deck.length}</div>`;
+    setTimeout(() => speak(w.spanish, 'tts-fc-' + idx), 200);
+  }
+  window._fcNext = function(know) {
+    if (know) Mastery.advanceWord(deck[idx].spanish);
+    else Mastery.introduceWord(deck[idx].spanish);
+    idx++; render();
+  };
+  render();
 }
 
 // ── AUTH UI ───────────────────────────────────────────────────────────────────
-function renderAuthUI(){
+function renderAuthUI() {
   const area = document.getElementById('auth-area');
   const user = Auth.getUser();
-  if(user){
-    const initials = (user.name||'U').substring(0,2).toUpperCase();
+  if (user) {
+    const initials = (user.name || 'U').substring(0, 2).toUpperCase();
     area.innerHTML = `
-      <div class="user-pill">
-        <div class="avatar">${initials}</div>
-        <span class="name">${user.name}</span>
-      </div>
+      <div class="user-pill"><div class="avatar">${initials}</div><span class="name">${user.name}</span></div>
       <button class="logout-btn" onclick="Auth.logout()">Sign Out</button>`;
     document.getElementById('auth-gate').style.display = 'none';
     document.getElementById('app-main').style.display = 'block';
@@ -533,27 +623,31 @@ function renderAuthUI(){
   }
 }
 
-// ── BOOT ─────────────────────────────────────────────────────────────────────
-async function boot(){
-  // Handle OAuth callback
-  await Auth.handleCallback();
-
-  // If token expired, try refresh
-  if(Auth.getTokens() && !Auth.isLoggedIn()){
-    await Auth.refreshToken();
+// ── INIT PRACTICE FILTERS ────────────────────────────────────────────────────
+function initPracticeFilters() {
+  const sel = document.getElementById('fpCat');
+  if (!sel) return;
+  const cats = [...new Set(VOCAB.map(w => w.category))];
+  for (const c of cats) {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c.replace(/^\d+\.\s*/, '');
+    sel.appendChild(opt);
   }
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+async function boot() {
+  await Auth.handleCallback();
+  if (Auth.getTokens() && !Auth.isLoggedIn()) await Auth.refreshToken();
 
   renderAuthUI();
 
-  if(Auth.isLoggedIn()){
-    initSidebar();
+  if (Auth.isLoggedIn()) {
+    initPracticeFilters();
     Chatbot.init();
-    // Load progress from cloud and merge
     await Progress.loadFromCloud();
-    state.learned = Progress.getLearned();
-    state.streak = Progress.getStreak();
-    state.lastScore = Progress.getLastScore();
-    updateStats();
+    renderDashboard();
   }
 }
 
