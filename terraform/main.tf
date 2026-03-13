@@ -18,9 +18,6 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# ─────────────────────────────────────────────
-# DATA SOURCES
-# ─────────────────────────────────────────────
 data "aws_route53_zone" "main" {
   name         = var.hosted_zone_name
   private_zone = false
@@ -76,26 +73,10 @@ resource "aws_acm_certificate" "site" {
   }
 }
 
-resource "aws_route53_record" "cert_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.site.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = each.value.name
-  type    = each.value.type
-  records = [each.value.record]
-  ttl     = 60
-}
-
-resource "aws_acm_certificate_validation" "site" {
-  provider                = aws.us_east_1
-  certificate_arn         = aws_acm_certificate.site.arn
-  validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
-}
+# NOTE: After `terraform apply`, go to ACM in us-east-1 console,
+# copy the CNAME validation record, and create it manually in Route53.
+# Once validated, CloudFront will serve on spanish-tutor.vizeet.me.
+# Then create an A record (alias) in Route53 pointing to the CloudFront distribution.
 
 # ─────────────────────────────────────────────
 # CLOUDFRONT OAC + DISTRIBUTION
@@ -149,7 +130,7 @@ resource "aws_cloudfront_distribution" "site" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.site.certificate_arn
+    acm_certificate_arn      = aws_acm_certificate.site.arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
@@ -158,7 +139,7 @@ resource "aws_cloudfront_distribution" "site" {
     geo_restriction { restriction_type = "none" }
   }
 
-  depends_on = [aws_acm_certificate_validation.site]
+  depends_on = [aws_acm_certificate.site]
 }
 
 # ─────────────────────────────────────────────

@@ -3,7 +3,28 @@ output "cloudfront_distribution_id" {
 }
 
 output "cloudfront_domain" {
-  value = aws_cloudfront_distribution.site.domain_name
+  description = "Create A record (alias) in Route53 pointing to this"
+  value       = aws_cloudfront_distribution.site.domain_name
+}
+
+output "cloudfront_hosted_zone_id" {
+  description = "Use this as the alias hosted zone ID in Route53"
+  value       = aws_cloudfront_distribution.site.hosted_zone_id
+}
+
+output "acm_certificate_arn" {
+  value = aws_acm_certificate.site.arn
+}
+
+output "acm_validation_records" {
+  description = "Create these CNAME records in Route53 to validate the ACM certificate"
+  value = {
+    for dvo in aws_acm_certificate.site.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      value  = dvo.resource_record_value
+    }
+  }
 }
 
 output "site_url" {
