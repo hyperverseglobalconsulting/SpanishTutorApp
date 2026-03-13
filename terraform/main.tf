@@ -164,7 +164,7 @@ resource "aws_cognito_user_pool" "main" {
   name = "${var.app_name}-users"
 
   auto_verified_attributes = ["email"]
-  username_attributes       = ["email"]
+  username_attributes      = ["email"]
 
   password_policy {
     minimum_length    = 8
@@ -219,11 +219,11 @@ resource "aws_cognito_user_pool_client" "web" {
     "ALLOW_USER_PASSWORD_AUTH",
   ]
 
-  supported_identity_providers = ["COGNITO"]
-  callback_urls                = var.cognito_callback_urls
-  logout_urls                  = var.cognito_logout_urls
-  allowed_oauth_flows          = ["code"]
-  allowed_oauth_scopes         = ["email", "openid", "profile"]
+  supported_identity_providers         = ["COGNITO"]
+  callback_urls                        = var.cognito_callback_urls
+  logout_urls                          = var.cognito_logout_urls
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["email", "openid", "profile"]
   allowed_oauth_flows_user_pool_client = true
 
   token_validity_units {

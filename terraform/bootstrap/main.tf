@@ -99,9 +99,9 @@ resource "aws_iam_role_policy" "github_actions" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "Terraform"
-        Effect   = "Allow"
-        Action   = [
+        Sid    = "Terraform"
+        Effect = "Allow"
+        Action = [
           "s3:*",
           "cloudfront:*",
           "acm:*",
