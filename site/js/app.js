@@ -347,6 +347,9 @@ function renderExercise() {
   const backBtn = document.getElementById('lessonBackBtn');
   if (backBtn) backBtn.style.display = prog.current > 0 ? 'inline-block' : 'none';
 
+  // Highlight current question type in sidebar
+  updateQuestionTypeSidebar(ex.type);
+
   const content = document.getElementById('lessonContent');
 
   if (ex.type === 'learn') {
@@ -359,6 +362,49 @@ function renderExercise() {
     renderFillCard(content, ex);
   } else if (ex.type === 'translate') {
     renderTranslateCard(content, ex);
+  }
+}
+
+function updateQuestionTypeSidebar(exerciseType) {
+  // Remove all existing indicators
+  document.querySelectorAll('.qt-indicator').forEach(el => el.remove());
+  
+  // Map exercise type to sidebar item
+  let targetSelector = null;
+  if (exerciseType === 'learn') {
+    targetSelector = '.qt-learn-intro';
+  } else if (exerciseType === 'mcq') {
+    // Determine if it's recognise or recall based on current stage
+    const prog = LessonEngine.getProgress();
+    if (prog.stage === 'recognise') {
+      targetSelector = '.qt-recognise-mcq';
+    } else if (prog.stage === 'recall') {
+      targetSelector = '.qt-recall-mcq';
+    }
+  } else if (exerciseType === 'produce') {
+    targetSelector = '.qt-produce-type';
+  } else if (exerciseType === 'translate') {
+    const prog = LessonEngine.getProgress();
+    if (prog.stage === 'produce') {
+      targetSelector = '.qt-produce-translate';
+    } else if (prog.stage === 'use') {
+      targetSelector = '.qt-use-translate';
+    }
+  } else if (exerciseType === 'fill') {
+    targetSelector = '.qt-use-fill';
+  } else if (exerciseType === 'sentence_order') {
+    targetSelector = '.qt-use-order';
+  }
+  
+  // Add green dot indicator
+  if (targetSelector) {
+    const target = document.querySelector(targetSelector);
+    if (target) {
+      const indicator = document.createElement('span');
+      indicator.className = 'qt-indicator';
+      indicator.style.cssText = 'display:inline-block;width:8px;height:8px;background:var(--green);border-radius:50%;margin-right:6px;box-shadow:0 0 8px var(--green)';
+      target.insertBefore(indicator, target.firstChild);
+    }
   }
 }
 
