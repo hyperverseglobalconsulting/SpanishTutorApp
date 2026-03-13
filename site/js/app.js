@@ -242,7 +242,19 @@ function renderPhaseMap() {
         </div>
         <div style="font-weight:600;font-size:.9rem;margin-bottom:6px">${unit.title}</div>
         <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">${unit.words.length} words · ${stageInfo ? stageInfo.icon + ' ' + stageInfo.label : ''}</div>
-        ${stageInfo && stageInfo.questionTypes ? `<div style="font-size:.68rem;color:var(--muted);margin-bottom:8px;line-height:1.3">${stageInfo.questionTypes.join(' · ')}</div>` : ''}
+        ${stageInfo && stageInfo.questionTypes ? `
+          <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+            ${stageInfo.questionTypes.map(qType => {
+              const qProgress = progress; // For now, all types share same progress
+              return `
+                <div style="display:flex;align-items:center;gap:6px">
+                  <div style="font-size:.65rem;color:var(--muted);min-width:90px;white-space:nowrap">${qType}</div>
+                  <div style="flex:1;background:var(--dim);border-radius:2px;height:3px;overflow:hidden">
+                    <div style="height:100%;width:${qProgress}%;background:${qProgress >= 95 ? 'var(--green)' : qProgress > 0 ? 'var(--accent)' : 'var(--dim)'};border-radius:2px"></div>
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>` : ''}
         <div style="background:var(--dim);border-radius:3px;height:4px;overflow:hidden;margin-bottom:10px">
           <div style="height:100%;width:${progress}%;background:${done ? 'var(--green)' : 'var(--accent)'};border-radius:3px;transition:width .3s"></div>
         </div>
