@@ -54,3 +54,24 @@ output "api_endpoint" {
 output "dynamodb_table" {
   value = aws_dynamodb_table.progress.name
 }
+
+output "dynamodb_curriculum_table" {
+  value = aws_dynamodb_table.curriculum.name
+}
+
+output "dynamodb_events_table" {
+  value = aws_dynamodb_table.events.name
+}
+
+output "analytics_bucket" {
+  value = aws_s3_bucket.analytics.id
+}
+
+output "glue_database" {
+  value = aws_glue_catalog_database.analytics.name
+}
+
+output "seed_lambda_name" {
+  description = "Invoke this Lambda once after deploy to populate the curriculum table"
+  value       = aws_lambda_function.seed.function_name
+}

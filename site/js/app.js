@@ -234,6 +234,7 @@ function renderMCQCard(container, ex) {
 function submitMCQ(btn, chosen) {
   document.querySelectorAll('.option').forEach(b => b.disabled = true);
   const result = LessonEngine.submitAnswer(chosen);
+  if (result.word) DataService.trackEvent('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'mcq' });
   if (result.correct) {
     btn.classList.add('correct');
     showFeedback(true, `✅ Correct! ${result.explanation}
@@ -271,6 +272,7 @@ function submitProduce() {
   const inp = document.getElementById('produceAns');
   if (!inp || !inp.value.trim()) return;
   const result = LessonEngine.submitAnswer(inp.value);
+  if (result.word) DataService.trackEvent('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'produce' });
   inp.disabled = true;
   document.querySelector('.submit-btn').disabled = true;
   if (result.correct) {
@@ -309,6 +311,7 @@ function submitFill() {
   const inp = document.getElementById('fillAns');
   if (!inp || !inp.value.trim()) return;
   const result = LessonEngine.submitAnswer(inp.value);
+  if (result.word) DataService.trackEvent('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'fill' });
   inp.disabled = true;
   document.querySelector('.submit-btn').disabled = true;
   if (result.correct) {
@@ -345,6 +348,7 @@ function submitTranslate() {
   const inp = document.getElementById('transAns');
   if (!inp || !inp.value.trim()) return;
   const result = LessonEngine.submitAnswer(inp.value);
+  if (result.word) DataService.trackEvent('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'translate' });
   inp.disabled = true;
   document.querySelector('.submit-btn').disabled = true;
   if (result.correct) {
@@ -369,6 +373,8 @@ function showFeedback(ok, msg) {
 // ── RESULTS ──────────────────────────────────────────────────────────────────
 function showResults() {
   const r = LessonEngine.getResults();
+  DataService.trackEvent('session_complete', { correct: r.correct, total: r.total, percentage: r.percentage, unit: r.unit?.id, stage: r.stage });
+  DataService.saveProgress();
   const emoji = r.percentage >= 90 ? '🌟' : r.percentage >= 70 ? '👍' : '📚';
   const msg = r.percentage >= 90 ? 'Outstanding!' : r.percentage >= 70 ? 'Good job! Stage cleared.' : 'Keep practising — you\'ll get there!';
 
@@ -659,6 +665,7 @@ const AI_SCENARIOS = [
 ];
 
 function openAIScenario() {
+  DataService.trackEvent('ai_usage', { feature: 'ai_scenario' });
   showScreen('ai-scenario');
   const chat = document.getElementById('aiScenarioChat');
   chat.innerHTML = '';
@@ -756,6 +763,7 @@ const WRITING_PROMPTS = [
 ];
 
 function openWritingLab() {
+  DataService.trackEvent('ai_usage', { feature: 'writing_lab' });
   showScreen('writing');
   const c = document.getElementById('writingContent');
   const wp = WRITING_PROMPTS[Math.floor(Math.random() * WRITING_PROMPTS.length)];
@@ -828,6 +836,7 @@ async function submitWriting(promptTitle) {
 const STORY_THEMES = ['daily life', 'adventure', 'school', 'family', 'travel', 'mystery', 'sports', 'food'];
 
 function openStoryMode() {
+  DataService.trackEvent('ai_usage', { feature: 'story_mode' });
   showScreen('story');
   const c = document.getElementById('storyContent');
   c.innerHTML = `
@@ -926,6 +935,7 @@ function checkStoryAnswer(btn, chosen, correct, explanation, idx, total) {
 let _aiQs = [], _aiQIdx = 0, _aiQCorrect = 0;
 
 function openAIQuiz() {
+  DataService.trackEvent('ai_usage', { feature: 'ai_quiz' });
   showScreen('ai-quiz');
   const c = document.getElementById('aiQuizContent');
   c.innerHTML = `<div class="loading-wrap"><div class="spinner"></div><div class="loading-text">AI is crafting a quiz targeting your weak spots…</div></div>`;
@@ -1045,6 +1055,7 @@ function checkAIQuizFill() {
 
 // ── AI: STUDY COACH ──────────────────────────────────────────────────────────
 async function openStudyCoach() {
+  DataService.trackEvent('ai_usage', { feature: 'study_coach' });
   showScreen('coach');
   const c = document.getElementById('coachContent');
   const stats = Mastery.getOverallStats();
@@ -1077,6 +1088,236 @@ async function openStudyCoach() {
   } catch (e) {
     document.getElementById('coachAdvice').innerHTML = `<div class="no-key-banner">❌ ${e.message}</div>`;
   }
+}
+
+// ── MY PROGRESS DASHBOARD ─────────────────────────────────────────────────
+function openMyProgress() {
+  DataService.trackEvent('ai_usage', { feature: 'my_progress' });
+  showScreen('progress');
+  renderProgressDashboard();
+}
+
+function renderProgressDashboard() {
+  const c = document.getElementById('progressContent');
+  const stats = Mastery.getOverallStats();
+  const mastery = Mastery.getMasteryData();
+  const streak = Mastery.getStreakDays();
+  const todayCount = Mastery.getTodayWordCount();
+  const phases = Curriculum.getPhases();
+  const units = Curriculum.getUnits();
+
+  // Compute category-level stats
+  const catStats = {};
+  for (const w of VOCAB) {
+    const cat = w.category;
+    if (!catStats[cat]) catStats[cat] = { total: 0, sum: 0, mastered: 0, weak: 0, words: [] };
+    const level = mastery[w.spanish] || 0;
+    catStats[cat].total++;
+    catStats[cat].sum += level;
+    if (level >= 4) catStats[cat].mastered++;
+    if (level >= 1 && level <= 2) catStats[cat].weak++;
+    catStats[cat].words.push({ word: w.spanish, english: w.english, level });
+  }
+
+  // Sort categories by avg mastery
+  const catArr = Object.entries(catStats).map(([cat, s]) => ({
+    cat, shortCat: cat.replace(/^\d+\.\s*/, ''), avg: s.total > 0 ? s.sum / (s.total * 5) * 100 : 0,
+    mastered: s.mastered, total: s.total, weak: s.weak, words: s.words,
+  }));
+  const strengths = [...catArr].sort((a, b) => b.avg - a.avg).slice(0, 4);
+  const weaknesses = [...catArr].sort((a, b) => a.avg - b.avg).slice(0, 4);
+
+  // Weak words (level 1-2 with at least some exposure)
+  const weakWords = [];
+  for (const w of VOCAB) {
+    const lvl = mastery[w.spanish] || 0;
+    if (lvl >= 1 && lvl <= 2) weakWords.push({ spanish: w.spanish, english: w.english, level: lvl, cat: w.category.replace(/^\d+\.\s*/, '') });
+  }
+  weakWords.sort((a, b) => a.level - b.level);
+
+  // Effort remaining
+  const totalMasteryPoints = VOCAB.length * 5;
+  const currentPoints = VOCAB.reduce((sum, w) => sum + Math.min(mastery[w.spanish] || 0, 5), 0);
+  const overallPct = Math.round(currentPoints / totalMasteryPoints * 100);
+  const wordsNotStarted = stats.total - stats.learned - stats.learning;
+  const avgWordsPerDay = todayCount > 0 ? todayCount : 5;
+  const estDaysRemaining = wordsNotStarted > 0 ? Math.ceil(wordsNotStarted / avgWordsPerDay) : 0;
+
+  // Level distribution
+  const lvlColors = ['var(--dim)', 'var(--accent2)', 'var(--accent)', 'var(--blue)', 'var(--purple)', 'var(--green)'];
+  const lvlLabels = ['Not Started', 'Introduced', 'Recognised', 'Familiar', 'Strong', 'Mastered'];
+  const maxLvl = Math.max(...Object.values(stats.levels), 1);
+
+  // Phase progress
+  const phaseStats = phases.map(p => {
+    const pUnits = units.filter(u => u.phase === p.phase);
+    const pWords = pUnits.flatMap(u => u.words);
+    const pTotal = pWords.length * 5;
+    const pCurrent = pWords.reduce((sum, w) => sum + Math.min(mastery[w.spanish] || 0, 5), 0);
+    const pPct = pTotal > 0 ? Math.round(pCurrent / pTotal * 100) : 0;
+    const pLearned = pWords.filter(w => (mastery[w.spanish] || 0) >= 3).length;
+    return { ...p, pct: pPct, learned: pLearned, total: pWords.length, units: pUnits.length };
+  });
+
+  // Ring chart dimensions
+  const ringSize = 140;
+  const ringStroke = 14;
+  const ringR = (ringSize - ringStroke) / 2;
+  const ringC = 2 * Math.PI * ringR;
+  const masteredPct = stats.total > 0 ? stats.mastered / stats.total : 0;
+  const learnedPct = stats.total > 0 ? stats.learned / stats.total : 0;
+  const learningPct = stats.total > 0 ? stats.learning / stats.total : 0;
+
+  c.innerHTML = `
+    <!-- Row 1: Overview cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px">
+
+      <!-- Overall ring -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px;display:flex;align-items:center;gap:24px">
+        <div style="position:relative;width:${ringSize}px;height:${ringSize}px;flex-shrink:0">
+          <svg width="${ringSize}" height="${ringSize}" style="transform:rotate(-90deg)">
+            <circle cx="${ringSize/2}" cy="${ringSize/2}" r="${ringR}" fill="none" stroke="var(--dim)" stroke-width="${ringStroke}"/>
+            <circle cx="${ringSize/2}" cy="${ringSize/2}" r="${ringR}" fill="none" stroke="var(--accent2)" stroke-width="${ringStroke}"
+              stroke-dasharray="${ringC}" stroke-dashoffset="${ringC * (1 - learningPct - learnedPct - masteredPct)}" stroke-linecap="round"/>
+            <circle cx="${ringSize/2}" cy="${ringSize/2}" r="${ringR}" fill="none" stroke="var(--blue)" stroke-width="${ringStroke}"
+              stroke-dasharray="${ringC}" stroke-dashoffset="${ringC * (1 - learnedPct - masteredPct)}" stroke-linecap="round"/>
+            <circle cx="${ringSize/2}" cy="${ringSize/2}" r="${ringR}" fill="none" stroke="var(--green)" stroke-width="${ringStroke}"
+              stroke-dasharray="${ringC}" stroke-dashoffset="${ringC * (1 - masteredPct)}" stroke-linecap="round"/>
+          </svg>
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+            <div style="font-family:var(--font-display);font-size:1.8rem;font-weight:900;color:var(--text)">${overallPct}%</div>
+            <div style="font-size:.65rem;color:var(--muted)">Overall</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:1rem;margin-bottom:10px">Word Mastery</div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:.82rem">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0"></span> <b>${stats.mastered}</b> Mastered</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:var(--blue);flex-shrink:0"></span> <b>${stats.learned - stats.mastered}</b> Learned</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:var(--accent2);flex-shrink:0"></span> <b>${stats.learning}</b> In Progress</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:50%;background:var(--dim);flex-shrink:0"></span> <b>${wordsNotStarted}</b> Not Started</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Key metrics -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px">
+        <div style="font-weight:700;font-size:1rem;margin-bottom:14px">Key Metrics</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div style="text-align:center;padding:12px;background:var(--surface);border-radius:10px">
+            <div style="font-family:var(--font-display);font-size:1.6rem;font-weight:900;color:var(--accent2)">${streak}</div>
+            <div style="font-size:.72rem;color:var(--muted)">Day Streak 🔥</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface);border-radius:10px">
+            <div style="font-family:var(--font-display);font-size:1.6rem;font-weight:900;color:var(--blue)">${todayCount}</div>
+            <div style="font-size:.72rem;color:var(--muted)">Words Today</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface);border-radius:10px">
+            <div style="font-family:var(--font-display);font-size:1.6rem;font-weight:900;color:var(--purple)">${stats.reviewDue}</div>
+            <div style="font-size:.72rem;color:var(--muted)">Due for Review</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:var(--surface);border-radius:10px">
+            <div style="font-family:var(--font-display);font-size:1.6rem;font-weight:900;color:var(--green)">${estDaysRemaining > 0 ? '~' + estDaysRemaining + 'd' : '✅'}</div>
+            <div style="font-size:.72rem;color:var(--muted)">${estDaysRemaining > 0 ? 'Est. Days Left' : 'All Introduced!'}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: Phase Progress -->
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px;margin-bottom:24px">
+      <div style="font-weight:700;font-size:1rem;margin-bottom:16px">📈 Phase Progress & Effort Remaining</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        ${phaseStats.map(p => `
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <div style="font-size:.85rem;font-weight:600">${p.icon} Phase ${p.phase}: ${p.title}</div>
+              <div style="font-size:.78rem;color:var(--muted)">${p.learned}/${p.total} words · ${p.units} units · ${p.pct}%</div>
+            </div>
+            <div style="background:var(--dim);border-radius:6px;height:10px;overflow:hidden">
+              <div style="height:100%;width:${p.pct}%;background:${p.pct >= 90 ? 'var(--green)' : p.pct >= 50 ? 'var(--blue)' : 'var(--accent)'};border-radius:6px;transition:width .5s"></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <!-- Row 3: Mastery distribution + Strengths/Weaknesses -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px">
+
+      <!-- Mastery Level Distribution -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px">
+        <div style="font-weight:700;font-size:1rem;margin-bottom:16px">🎚️ Mastery Level Distribution</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${[0,1,2,3,4,5].map(lvl => `
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-size:.72rem;color:var(--muted);width:72px;text-align:right;flex-shrink:0">${lvlLabels[lvl]}</div>
+              <div style="flex:1;background:var(--dim);border-radius:4px;height:18px;overflow:hidden;position:relative">
+                <div style="height:100%;width:${(stats.levels[lvl] / maxLvl * 100)}%;background:${lvlColors[lvl]};border-radius:4px;transition:width .5s"></div>
+              </div>
+              <div style="font-size:.82rem;font-weight:600;width:32px;text-align:right">${stats.levels[lvl]}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Strengths & Weaknesses by category -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px">
+        <div style="font-weight:700;font-size:1rem;margin-bottom:14px">💪 Strengths</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">
+          ${strengths.map(s => `
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="flex:1;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.shortCat}</div>
+              <div style="width:80px;background:var(--dim);border-radius:4px;height:8px;overflow:hidden;flex-shrink:0">
+                <div style="height:100%;width:${s.avg}%;background:var(--green);border-radius:4px"></div>
+              </div>
+              <div style="font-size:.78rem;font-weight:600;width:36px;text-align:right;color:var(--green)">${Math.round(s.avg)}%</div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="font-weight:700;font-size:1rem;margin-bottom:14px">⚠️ Needs Work</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${weaknesses.map(s => `
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="flex:1;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.shortCat}</div>
+              <div style="width:80px;background:var(--dim);border-radius:4px;height:8px;overflow:hidden;flex-shrink:0">
+                <div style="height:100%;width:${s.avg}%;background:var(--accent2);border-radius:4px"></div>
+              </div>
+              <div style="font-size:.78rem;font-weight:600;width:36px;text-align:right;color:var(--accent2)">${Math.round(s.avg)}%</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 4: Weak words -->
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px;margin-bottom:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="font-weight:700;font-size:1rem">🔴 Words That Need Attention (${weakWords.length})</div>
+        ${weakWords.length > 0 ? '<button class="btn btn-secondary" style="font-size:.78rem;padding:6px 14px" onclick="startReviewSession()">🔄 Review These</button>' : ''}
+      </div>
+      ${weakWords.length === 0 ? '<div style="font-size:.85rem;color:var(--muted);padding:12px 0">No weak words right now — great job! Keep learning new ones.</div>' : `
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;max-height:300px;overflow-y:auto">
+          ${weakWords.slice(0, 40).map(w => `
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface);border-radius:8px;font-size:.82rem">
+              <div style="width:6px;height:6px;border-radius:50%;background:${w.level <= 1 ? 'var(--accent2)' : 'var(--accent)'};flex-shrink:0"></div>
+              <div style="flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${w.spanish}">${w.spanish}</div>
+              <div style="color:var(--muted);font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${w.english}">${w.english}</div>
+            </div>
+          `).join('')}
+        </div>
+        ${weakWords.length > 40 ? `<div style="font-size:.78rem;color:var(--muted);margin-top:8px;text-align:center">… and ${weakWords.length - 40} more</div>` : ''}
+      `}
+    </div>
+
+    <!-- Row 5: Actions -->
+    <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;padding:12px 0">
+      <button class="btn btn-primary" onclick="continueLearning()">▶ Continue Learning</button>
+      <button class="btn btn-secondary" onclick="startReviewSession()">🔄 Review Weak Words</button>
+      <button class="btn btn-secondary" onclick="openAIQuiz()">🧠 AI Quiz My Weak Spots</button>
+      <button class="btn btn-secondary" onclick="openStudyCoach()">🎯 Get AI Study Plan</button>
+    </div>
+  `;
 }
 
 // ── AUTH UI ───────────────────────────────────────────────────────────────
@@ -1122,10 +1363,29 @@ async function boot() {
   renderAuthUI();
 
   if (Auth.isLoggedIn()) {
+    // Load curriculum from API (falls back to local vocab-data.js + curriculum.js)
+    try {
+      await DataService.loadCurriculum();
+    } catch (e) {
+      console.warn('Curriculum API unavailable, using local data');
+    }
+
+    // Load progress from cloud (mastery, SRS, history)
+    try {
+      await DataService.loadProgress();
+    } catch (e) {
+      console.warn('Progress sync unavailable, using local storage');
+    }
+
+    // Legacy progress load as fallback
+    await Progress.loadFromCloud();
+
     initPracticeFilters();
     Chatbot.init();
-    await Progress.loadFromCloud();
     renderDashboard();
+
+    // Start auto-sync (saves mastery to cloud every 30s + on page unload)
+    DataService.startAutoSync();
   }
 }
 

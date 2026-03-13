@@ -54,6 +54,7 @@
         <button class="btn btn-primary" id="btnContinue" onclick="continueLearning()">▶ Continue Learning</button>
         <button class="btn btn-secondary" id="btnReview" onclick="startReviewSession()">🔄 Review (<span id="reviewCount">0</span>)</button>
         <button class="btn btn-secondary" onclick="showScreen('practice')">🎮 Free Practice</button>
+        <button class="btn btn-secondary" onclick="openMyProgress()">📊 My Progress</button>
       </div>
     </div>
 
@@ -199,6 +200,15 @@
     <div id="coachContent"></div>
   </div>
 
+  <!-- My Progress -->
+  <div class="screen" id="screen-progress" style="max-width:960px;margin:0 auto;padding:24px 20px">
+    <div class="quiz-header" style="margin-bottom:20px">
+      <div class="quiz-title">📊 My Progress</div>
+      <button class="btn btn-secondary" onclick="showScreen('dashboard')">← Back</button>
+    </div>
+    <div id="progressContent"></div>
+  </div>
+
   <!-- Results view -->
   <div class="screen" id="screen-results" style="max-width:600px;margin:0 auto;padding:40px 20px">
     <div id="resultsContent"></div>
@@ -215,6 +225,7 @@
 <script src="js/lesson-engine.js"></script>
 <script src="js/scenarios.js"></script>
 <script src="js/ai-tutor.js"></script>
+<script src="js/data-service.js"></script>
 <script src="js/chatbot.js"></script>
 <script src="js/app.js"></script>
 </body>

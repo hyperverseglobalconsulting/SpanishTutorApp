@@ -259,6 +259,164 @@ resource "aws_dynamodb_table" "progress" {
 }
 
 # ─────────────────────────────────────────────
+# DYNAMODB – curriculum content (vocab, units, phases, scenarios)
+# ─────────────────────────────────────────────
+resource "aws_dynamodb_table" "curriculum" {
+  name         = "${var.app_name}-curriculum"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  attribute {
+    name = "gsi1pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "gsi1sk"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "GSI1"
+    hash_key        = "gsi1pk"
+    range_key       = "gsi1sk"
+    projection_type = "ALL"
+  }
+}
+
+# ─────────────────────────────────────────────
+# DYNAMODB – learning events (analytics)
+# ─────────────────────────────────────────────
+resource "aws_dynamodb_table" "events" {
+  name         = "${var.app_name}-events"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+}
+
+# ─────────────────────────────────────────────
+# S3 – analytics data lake
+# ─────────────────────────────────────────────
+resource "aws_s3_bucket" "analytics" {
+  bucket        = "${var.app_name}-analytics-${data.aws_caller_identity.current.account_id}"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "analytics" {
+  bucket = aws_s3_bucket.analytics.id
+
+  rule {
+    id     = "expire-old-data"
+    status = "Enabled"
+    expiration {
+      days = 365
+    }
+  }
+}
+
+# ─────────────────────────────────────────────
+# GLUE – catalog database + crawler for analytics
+# ─────────────────────────────────────────────
+resource "aws_glue_catalog_database" "analytics" {
+  name = replace("${var.app_name}-analytics", "-", "_")
+}
+
+resource "aws_iam_role" "glue" {
+  name = "${var.app_name}-glue-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "glue.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "glue" {
+  name = "${var.app_name}-glue-policy"
+  role = aws_iam_role.glue.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:ListBucket"]
+        Resource = [aws_s3_bucket.analytics.arn, "${aws_s3_bucket.analytics.arn}/*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["glue:*"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:DescribeTable", "dynamodb:Scan", "dynamodb:GetItem"]
+        Resource = [aws_dynamodb_table.events.arn, aws_dynamodb_table.progress.arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "arn:aws:logs:*:*:*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "glue_service" {
+  role       = aws_iam_role.glue.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
+}
+
+resource "aws_glue_crawler" "events" {
+  name          = "${var.app_name}-events-crawler"
+  database_name = aws_glue_catalog_database.analytics.name
+  role          = aws_iam_role.glue.arn
+  schedule      = "cron(0 6 ? * MON *)"
+
+  dynamodb_target {
+    path = aws_dynamodb_table.events.name
+  }
+}
+
+# ─────────────────────────────────────────────
+# ATHENA – query workgroup
+# ─────────────────────────────────────────────
+resource "aws_athena_workgroup" "main" {
+  name = "${var.app_name}-analytics"
+
+  configuration {
+    result_configuration {
+      output_location = "s3://${aws_s3_bucket.analytics.id}/athena-results/"
+    }
+    enforce_workgroup_configuration = true
+  }
+}
+
+# ─────────────────────────────────────────────
 # SSM PARAMETER – OpenAI key
 # ─────────────────────────────────────────────
 resource "aws_ssm_parameter" "openai_key" {
@@ -297,8 +455,18 @@ resource "aws_iam_role_policy" "lambda" {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"]
-        Resource = aws_dynamodb_table.progress.arn
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchWriteItem", "dynamodb:BatchGetItem"]
+        Resource = [
+          aws_dynamodb_table.progress.arn,
+          aws_dynamodb_table.curriculum.arn,
+          "${aws_dynamodb_table.curriculum.arn}/index/*",
+          aws_dynamodb_table.events.arn,
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject"]
+        Resource = "${aws_s3_bucket.analytics.arn}/*"
       },
       {
         Effect   = "Allow"
@@ -361,6 +529,83 @@ resource "aws_lambda_function" "chatbot" {
 }
 
 # ─────────────────────────────────────────────
+# LAMBDA – Curriculum API (CRUD for vocab, units, phases, scenarios)
+# ─────────────────────────────────────────────
+data "archive_file" "curriculum_lambda" {
+  type        = "zip"
+  source_file = "${path.module}/../lambda/curriculum-api/index.mjs"
+  output_path = "${path.module}/../lambda/curriculum-api.zip"
+}
+
+resource "aws_lambda_function" "curriculum" {
+  function_name    = "${var.app_name}-curriculum"
+  role             = aws_iam_role.lambda.arn
+  handler          = "index.handler"
+  runtime          = "nodejs20.x"
+  timeout          = 10
+  filename         = data.archive_file.curriculum_lambda.output_path
+  source_code_hash = data.archive_file.curriculum_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      TABLE_NAME = aws_dynamodb_table.curriculum.name
+    }
+  }
+}
+
+# ─────────────────────────────────────────────
+# LAMBDA – Analytics API (record + query learning events)
+# ─────────────────────────────────────────────
+data "archive_file" "analytics_lambda" {
+  type        = "zip"
+  source_file = "${path.module}/../lambda/analytics/index.mjs"
+  output_path = "${path.module}/../lambda/analytics.zip"
+}
+
+resource "aws_lambda_function" "analytics" {
+  function_name    = "${var.app_name}-analytics"
+  role             = aws_iam_role.lambda.arn
+  handler          = "index.handler"
+  runtime          = "nodejs20.x"
+  timeout          = 10
+  filename         = data.archive_file.analytics_lambda.output_path
+  source_code_hash = data.archive_file.analytics_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      EVENTS_TABLE   = aws_dynamodb_table.events.name
+      PROGRESS_TABLE = aws_dynamodb_table.progress.name
+    }
+  }
+}
+
+# ─────────────────────────────────────────────
+# LAMBDA – Seed (populate curriculum table from vocab data)
+# ─────────────────────────────────────────────
+data "archive_file" "seed_lambda" {
+  type        = "zip"
+  source_file = "${path.module}/../lambda/seed/index.mjs"
+  output_path = "${path.module}/../lambda/seed.zip"
+}
+
+resource "aws_lambda_function" "seed" {
+  function_name    = "${var.app_name}-seed"
+  role             = aws_iam_role.lambda.arn
+  handler          = "index.handler"
+  runtime          = "nodejs20.x"
+  timeout          = 120
+  memory_size      = 512
+  filename         = data.archive_file.seed_lambda.output_path
+  source_code_hash = data.archive_file.seed_lambda.output_base64sha256
+
+  environment {
+    variables = {
+      TABLE_NAME = aws_dynamodb_table.curriculum.name
+    }
+  }
+}
+
+# ─────────────────────────────────────────────
 # API GATEWAY (HTTP API)
 # ─────────────────────────────────────────────
 resource "aws_apigatewayv2_api" "main" {
@@ -369,7 +614,7 @@ resource "aws_apigatewayv2_api" "main" {
 
   cors_configuration {
     allow_origins = ["https://${var.domain_name}"]
-    allow_methods = ["GET", "POST", "PUT", "OPTIONS"]
+    allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     allow_headers = ["Content-Type", "Authorization"]
     max_age       = 3600
   }
@@ -447,6 +692,86 @@ resource "aws_lambda_permission" "apigw_chatbot" {
   statement_id  = "AllowAPIGateway"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.chatbot.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+}
+
+# Curriculum routes
+resource "aws_apigatewayv2_integration" "curriculum" {
+  api_id                 = aws_apigatewayv2_api.main.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.curriculum.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "curriculum_get" {
+  api_id             = aws_apigatewayv2_api.main.id
+  route_key          = "GET /api/curriculum/{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.curriculum.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+resource "aws_apigatewayv2_route" "curriculum_post" {
+  api_id             = aws_apigatewayv2_api.main.id
+  route_key          = "POST /api/curriculum/{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.curriculum.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+resource "aws_apigatewayv2_route" "curriculum_put" {
+  api_id             = aws_apigatewayv2_api.main.id
+  route_key          = "PUT /api/curriculum/{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.curriculum.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+resource "aws_apigatewayv2_route" "curriculum_delete" {
+  api_id             = aws_apigatewayv2_api.main.id
+  route_key          = "DELETE /api/curriculum/{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.curriculum.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+resource "aws_lambda_permission" "apigw_curriculum" {
+  statement_id  = "AllowAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.curriculum.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+}
+
+# Analytics routes
+resource "aws_apigatewayv2_integration" "analytics" {
+  api_id                 = aws_apigatewayv2_api.main.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.analytics.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "analytics_post" {
+  api_id             = aws_apigatewayv2_api.main.id
+  route_key          = "POST /api/analytics/events"
+  target             = "integrations/${aws_apigatewayv2_integration.analytics.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+resource "aws_apigatewayv2_route" "analytics_get" {
+  api_id             = aws_apigatewayv2_api.main.id
+  route_key          = "GET /api/analytics/{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.analytics.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+resource "aws_lambda_permission" "apigw_analytics" {
+  statement_id  = "AllowAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.analytics.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
 }
