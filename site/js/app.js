@@ -50,6 +50,103 @@ function renderDashboard() {
   updateStats();
 }
 
+function toggleTOC() {
+  const toc = document.getElementById('tableOfContents');
+  const btn = document.getElementById('tocToggleText');
+  if (toc.style.display === 'none') {
+    renderTOC();
+    toc.style.display = 'block';
+    btn.textContent = 'Hide';
+  } else {
+    toc.style.display = 'none';
+    btn.textContent = 'Show All';
+  }
+}
+
+function renderTOC() {
+  const container = document.getElementById('tableOfContents');
+  const phases = Curriculum.getPhases();
+  const units = Curriculum.getUnits();
+  const mastery = Mastery.getMasteryData();
+  const stages = Curriculum.STAGES;
+
+  let html = '<div style="display:flex;flex-direction:column;gap:20px">';
+
+  for (const phase of phases) {
+    const phaseUnits = units.filter(u => u.phase === phase.phase);
+    const unlocked = Curriculum.isPhaseUnlocked(phase.phase, mastery);
+    
+    html += `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;opacity:${unlocked ? 1 : 0.6}">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <span style="font-size:1.3rem">${phase.icon}</span>
+          <span style="font-family:var(--font-display);font-size:1.05rem;font-weight:700">Phase ${phase.phase}: ${phase.title}</span>
+          ${!unlocked ? '<span style="font-size:.7rem;color:var(--muted);background:var(--surface);padding:3px 10px;border-radius:12px;border:1px solid var(--border)">🔒 Locked</span>' : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">`;
+
+    for (const unit of phaseUnits) {
+      const unitUnlocked = Curriculum.isUnitUnlocked(unit.id, mastery);
+      const progress = Curriculum.getUnitProgress(unit.id, mastery);
+      const currentStage = Curriculum.getCurrentStage(unit.id, mastery);
+      const done = progress >= 95;
+
+      html += `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;opacity:${unitUnlocked ? 1 : 0.5}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-weight:600;font-size:.9rem">${unit.title}</div>
+            <div style="font-size:.75rem;color:var(--muted)">${unit.words.length} words · ${progress}%</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">`;
+
+      for (const stage of stages) {
+        const stageAvg = unit.words.map(w => mastery[w.spanish] || 0).reduce((a, b) => a + b, 0) / unit.words.length;
+        let stageStatus = 'pending';
+        if (stage.id === 'learn' && stageAvg >= 1) stageStatus = 'done';
+        else if (stage.id === 'recognise' && stageAvg >= 2) stageStatus = 'done';
+        else if (stage.id === 'recall' && stageAvg >= 3) stageStatus = 'done';
+        else if (stage.id === 'produce' && stageAvg >= 4) stageStatus = 'done';
+        else if (stage.id === 'use' && stageAvg >= 5) stageStatus = 'done';
+        else if (stage.id === currentStage) stageStatus = 'current';
+
+        const bgColor = stageStatus === 'done' ? 'var(--green)' : stageStatus === 'current' ? 'var(--accent)' : 'var(--dim)';
+        const textColor = stageStatus === 'pending' ? 'var(--muted)' : 'white';
+        const clickable = unitUnlocked && (stageStatus === 'current' || stageStatus === 'done');
+
+        html += `
+          <button 
+            class="btn" 
+            style="font-size:.72rem;padding:5px 10px;background:${bgColor};color:${textColor};cursor:${clickable ? 'pointer' : 'default'};opacity:${clickable ? 1 : 0.6}"
+            ${clickable ? `onclick="startUnitStage(${unit.id}, '${stage.id}')"` : 'disabled'}
+          >
+            ${stage.icon} ${stage.label} ${stageStatus === 'done' ? '✓' : ''}
+          </button>`;
+      }
+
+      html += `
+          </div>
+        </div>`;
+    }
+
+    html += `
+        </div>
+      </div>`;
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function startUnitStage(unitId, stageId) {
+  const info = LessonEngine.startLesson(unitId, stageId);
+  if (!info) return;
+  const stageInfo = Curriculum.STAGES.find(s => s.id === info.stage);
+  document.getElementById('lessonTitle').textContent = `${info.unit.phaseIcon} ${info.unit.title}`;
+  document.getElementById('lessonStage').textContent = `${stageInfo.icon} ${stageInfo.label} — ${stageInfo.desc}`;
+  showScreen('lesson');
+  renderExercise();
+}
+
 function renderClassification() {
   const container = document.getElementById('classificationSummary');
   if (!container) return;
@@ -228,6 +325,10 @@ function renderExercise() {
   const pct = Math.round((prog.current / prog.total) * 100);
   document.getElementById('lessonProgress').style.width = pct + '%';
   document.getElementById('lessonCounter').textContent = `${prog.current + 1}/${prog.total}`;
+  
+  // Update back button visibility
+  const backBtn = document.getElementById('lessonBackBtn');
+  if (backBtn) backBtn.style.display = prog.current > 0 ? 'inline-block' : 'none';
 
   const content = document.getElementById('lessonContent');
 
@@ -260,7 +361,10 @@ function renderLearnCard(container, ex) {
           <div style="color:var(--muted);font-size:.85rem">${w.example_en}</div>
         </div>` : ''}
       <div id="aiEnrich" style="margin:12px 0;text-align:left"></div>
-      <button class="btn btn-primary" style="margin-top:16px" onclick="submitLearn()">Got it — Next →</button>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
+        <button class="btn btn-secondary" id="learnBackBtn" onclick="goBackExercise()" style="display:none">← Back</button>
+        <button class="btn btn-primary" onclick="submitLearn()">Got it — Next →</button>
+      </div>
     </div>`;
   setTimeout(() => speak(w.spanish, 'tts-learn-' + ex.index), 300);
   // AI enrichment: load mnemonic, cultural note, fun fact
@@ -269,6 +373,11 @@ function renderLearnCard(container, ex) {
 
 function submitLearn() {
   LessonEngine.submitAnswer('');
+  renderExercise();
+}
+
+function goBackExercise() {
+  LessonEngine.goBack();
   renderExercise();
 }
 

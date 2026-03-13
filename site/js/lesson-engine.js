@@ -103,6 +103,18 @@ const LessonEngine = (() => {
     return result;
   }
 
+  function goBack() {
+    if (_exIdx > 0) {
+      _exIdx--;
+      // If the previous answer was correct, decrement the correct count
+      const prevEx = _exercises[_exIdx];
+      if (prevEx && prevEx._wasCorrect) {
+        _correct--;
+        delete prevEx._wasCorrect;
+      }
+    }
+  }
+
   function isComplete() { return _exIdx >= _exercises.length; }
 
   function getResults() {
@@ -264,8 +276,7 @@ const LessonEngine = (() => {
   }
 
   return {
-    startLesson, startReview,
-    getCurrentExercise, getProgress, submitAnswer,
-    isComplete, getResults,
+    startLesson, startReview, getCurrentExercise, getProgress,
+    submitAnswer, goBack, isComplete, getResults,
   };
 })();
