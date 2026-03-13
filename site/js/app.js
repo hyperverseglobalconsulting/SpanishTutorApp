@@ -1,6 +1,8 @@
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function shuffle(a) { return [...a].sort(() => Math.random() - 0.5); }
 function pick(arr, n) { return shuffle(arr).slice(0, n); }
+function track(type, detail) { try { if (typeof DataService !== 'undefined') DataService.trackEvent(type, detail); } catch(e) {} }
+function cloudSave() { try { if (typeof DataService !== 'undefined') DataService.saveProgress(); } catch(e) {} }
 
 // ── TTS ──────────────────────────────────────────────────────────────────────
 function speak(text, btnId) {
@@ -234,7 +236,7 @@ function renderMCQCard(container, ex) {
 function submitMCQ(btn, chosen) {
   document.querySelectorAll('.option').forEach(b => b.disabled = true);
   const result = LessonEngine.submitAnswer(chosen);
-  if (result.word) DataService.trackEvent('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'mcq' });
+  if (result.word) track('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'mcq' });
   if (result.correct) {
     btn.classList.add('correct');
     showFeedback(true, `✅ Correct! ${result.explanation}
@@ -272,7 +274,7 @@ function submitProduce() {
   const inp = document.getElementById('produceAns');
   if (!inp || !inp.value.trim()) return;
   const result = LessonEngine.submitAnswer(inp.value);
-  if (result.word) DataService.trackEvent('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'produce' });
+  if (result.word) track('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'produce' });
   inp.disabled = true;
   document.querySelector('.submit-btn').disabled = true;
   if (result.correct) {
@@ -311,7 +313,7 @@ function submitFill() {
   const inp = document.getElementById('fillAns');
   if (!inp || !inp.value.trim()) return;
   const result = LessonEngine.submitAnswer(inp.value);
-  if (result.word) DataService.trackEvent('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'fill' });
+  if (result.word) track('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'fill' });
   inp.disabled = true;
   document.querySelector('.submit-btn').disabled = true;
   if (result.correct) {
@@ -348,7 +350,7 @@ function submitTranslate() {
   const inp = document.getElementById('transAns');
   if (!inp || !inp.value.trim()) return;
   const result = LessonEngine.submitAnswer(inp.value);
-  if (result.word) DataService.trackEvent('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'translate' });
+  if (result.word) track('word_attempt', { word: result.word.spanish, correct: result.correct, mode: 'translate' });
   inp.disabled = true;
   document.querySelector('.submit-btn').disabled = true;
   if (result.correct) {
@@ -373,8 +375,8 @@ function showFeedback(ok, msg) {
 // ── RESULTS ──────────────────────────────────────────────────────────────────
 function showResults() {
   const r = LessonEngine.getResults();
-  DataService.trackEvent('session_complete', { correct: r.correct, total: r.total, percentage: r.percentage, unit: r.unit?.id, stage: r.stage });
-  DataService.saveProgress();
+  track('session_complete', { correct: r.correct, total: r.total, percentage: r.percentage, unit: r.unit?.id, stage: r.stage });
+  cloudSave();
   const emoji = r.percentage >= 90 ? '🌟' : r.percentage >= 70 ? '👍' : '📚';
   const msg = r.percentage >= 90 ? 'Outstanding!' : r.percentage >= 70 ? 'Good job! Stage cleared.' : 'Keep practising — you\'ll get there!';
 
@@ -665,7 +667,7 @@ const AI_SCENARIOS = [
 ];
 
 function openAIScenario() {
-  DataService.trackEvent('ai_usage', { feature: 'ai_scenario' });
+  track('ai_usage', { feature: 'ai_scenario' });
   showScreen('ai-scenario');
   const chat = document.getElementById('aiScenarioChat');
   chat.innerHTML = '';
@@ -763,7 +765,7 @@ const WRITING_PROMPTS = [
 ];
 
 function openWritingLab() {
-  DataService.trackEvent('ai_usage', { feature: 'writing_lab' });
+  track('ai_usage', { feature: 'writing_lab' });
   showScreen('writing');
   const c = document.getElementById('writingContent');
   const wp = WRITING_PROMPTS[Math.floor(Math.random() * WRITING_PROMPTS.length)];
@@ -836,7 +838,7 @@ async function submitWriting(promptTitle) {
 const STORY_THEMES = ['daily life', 'adventure', 'school', 'family', 'travel', 'mystery', 'sports', 'food'];
 
 function openStoryMode() {
-  DataService.trackEvent('ai_usage', { feature: 'story_mode' });
+  track('ai_usage', { feature: 'story_mode' });
   showScreen('story');
   const c = document.getElementById('storyContent');
   c.innerHTML = `
@@ -935,7 +937,7 @@ function checkStoryAnswer(btn, chosen, correct, explanation, idx, total) {
 let _aiQs = [], _aiQIdx = 0, _aiQCorrect = 0;
 
 function openAIQuiz() {
-  DataService.trackEvent('ai_usage', { feature: 'ai_quiz' });
+  track('ai_usage', { feature: 'ai_quiz' });
   showScreen('ai-quiz');
   const c = document.getElementById('aiQuizContent');
   c.innerHTML = `<div class="loading-wrap"><div class="spinner"></div><div class="loading-text">AI is crafting a quiz targeting your weak spots…</div></div>`;
@@ -1055,7 +1057,7 @@ function checkAIQuizFill() {
 
 // ── AI: STUDY COACH ──────────────────────────────────────────────────────────
 async function openStudyCoach() {
-  DataService.trackEvent('ai_usage', { feature: 'study_coach' });
+  track('ai_usage', { feature: 'study_coach' });
   showScreen('coach');
   const c = document.getElementById('coachContent');
   const stats = Mastery.getOverallStats();
@@ -1092,7 +1094,7 @@ async function openStudyCoach() {
 
 // ── MY PROGRESS DASHBOARD ─────────────────────────────────────────────────
 function openMyProgress() {
-  DataService.trackEvent('ai_usage', { feature: 'my_progress' });
+  track('ai_usage', { feature: 'my_progress' });
   showScreen('progress');
   renderProgressDashboard();
 }
@@ -1385,7 +1387,7 @@ async function boot() {
     renderDashboard();
 
     // Start auto-sync (saves mastery to cloud every 30s + on page unload)
-    DataService.startAutoSync();
+    try { DataService.startAutoSync(); } catch(e) {}
   }
 }
 
