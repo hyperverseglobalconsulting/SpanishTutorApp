@@ -261,7 +261,7 @@ function renderPhaseMap() {
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div style="font-size:.7rem;color:var(--muted)">${progress}%</div>
-          ${unitUnlocked && progress > 0 ? `<button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="event.stopPropagation();startUnit(${unit.id})">🔄 Retake</button>` : ''}
+          ${unitUnlocked && progress > 0 ? `<button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="event.stopPropagation();retakeUnit(${unit.id})">🔄 Retake</button>` : ''}
           ${unitUnlocked && progress === 0 ? `<button class="btn btn-primary" style="font-size:.7rem;padding:4px 10px" onclick="event.stopPropagation();startUnit(${unit.id})">▶ Start</button>` : ''}
         </div>
       </div>`;
@@ -308,6 +308,17 @@ function continueLearning() {
 // ── UNIT LESSON ──────────────────────────────────────────────────────────────
 function startUnit(unitId) {
   const info = LessonEngine.startLesson(unitId);
+  if (!info) return;
+  const stageInfo = Curriculum.STAGES.find(s => s.id === info.stage);
+  document.getElementById('lessonTitle').textContent = `${info.unit.phaseIcon} ${info.unit.title}`;
+  document.getElementById('lessonStage').textContent = `${stageInfo.icon} ${stageInfo.label} — ${stageInfo.desc}`;
+  showScreen('lesson');
+  renderExercise();
+}
+
+function retakeUnit(unitId) {
+  // Restart from the learn stage
+  const info = LessonEngine.startLesson(unitId, 'learn');
   if (!info) return;
   const stageInfo = Curriculum.STAGES.find(s => s.id === info.stage);
   document.getElementById('lessonTitle').textContent = `${info.unit.phaseIcon} ${info.unit.title}`;
