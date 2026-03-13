@@ -44,9 +44,73 @@ function updateStats() {
 
 // ── DASHBOARD ────────────────────────────────────────────────────────────────
 function renderDashboard() {
+  renderClassification();
   renderPhaseMap();
   renderScenarioCards();
   updateStats();
+}
+
+function renderClassification() {
+  const container = document.getElementById('classificationSummary');
+  if (!container) return;
+  const phases = Curriculum.getPhases();
+  const units = Curriculum.getUnits();
+  const mastery = Mastery.getMasteryData();
+
+  // Build category stats per phase
+  const phaseRows = phases.map(p => {
+    const pUnits = units.filter(u => u.phase === p.phase);
+    const catMap = {};
+    for (const u of pUnits) {
+      const cat = u.category;
+      if (!catMap[cat]) catMap[cat] = { total: 0, learned: 0 };
+      catMap[cat].total += u.words.length;
+      catMap[cat].learned += u.words.filter(w => (mastery[w.spanish] || 0) >= 3).length;
+    }
+    const totalWords = Object.values(catMap).reduce((s, c) => s + c.total, 0);
+    const totalLearned = Object.values(catMap).reduce((s, c) => s + c.learned, 0);
+    return { ...p, cats: catMap, totalWords, totalLearned, unitCount: pUnits.length };
+  });
+
+  const totalAll = phaseRows.reduce((s, p) => s + p.totalWords, 0);
+
+  container.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px;margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-family:var(--font-display);font-size:1.1rem;font-weight:700">📚 ${totalAll} Words — Classification</div>
+        <div style="font-size:.78rem;color:var(--muted)">${phases.length} phases · ${units.length} units · 12 categories</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+        ${phaseRows.map(p => {
+          const pPct = p.totalWords > 0 ? Math.round(p.totalLearned / p.totalWords * 100) : 0;
+          return `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-weight:700;font-size:.88rem">${p.icon} Phase ${p.phase}: ${p.title}</div>
+              <div style="font-size:.72rem;color:var(--muted)">${p.totalWords} words</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              ${Object.entries(p.cats).map(([cat, c]) => {
+                const short = cat.replace(/^\d+\.\s*/, '');
+                const cPct = c.total > 0 ? Math.round(c.learned / c.total * 100) : 0;
+                return `
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="flex:1;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${cat}">${short}</div>
+                  <div style="width:60px;background:var(--dim);border-radius:3px;height:5px;overflow:hidden;flex-shrink:0">
+                    <div style="height:100%;width:${cPct}%;background:${cPct >= 80 ? 'var(--green)' : cPct > 0 ? 'var(--blue)' : 'var(--dim)'};border-radius:3px"></div>
+                  </div>
+                  <div style="font-size:.72rem;color:var(--muted);width:52px;text-align:right;flex-shrink:0">${c.learned}/${c.total}</div>
+                </div>`;
+              }).join('')}
+            </div>
+            <div style="margin-top:8px;background:var(--dim);border-radius:3px;height:4px;overflow:hidden">
+              <div style="height:100%;width:${pPct}%;background:${pPct >= 80 ? 'var(--green)' : pPct > 0 ? 'var(--accent)' : 'var(--dim)'};border-radius:3px"></div>
+            </div>
+            <div style="font-size:.68rem;color:var(--muted);text-align:right;margin-top:3px">${pPct}% · ${p.unitCount} units</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
 }
 
 function renderPhaseMap() {
