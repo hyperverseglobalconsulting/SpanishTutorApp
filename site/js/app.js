@@ -47,6 +47,7 @@ function renderDashboard() {
   renderClassification();
   renderPhaseMap();
   renderScenarioCards();
+  renderTOC();
   updateStats();
 }
 
@@ -54,7 +55,6 @@ function toggleTOC() {
   const toc = document.getElementById('tableOfContents');
   const btn = document.getElementById('tocToggleText');
   if (toc.style.display === 'none') {
-    renderTOC();
     toc.style.display = 'block';
     btn.textContent = 'Hide';
   } else {
