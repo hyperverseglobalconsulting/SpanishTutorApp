@@ -454,8 +454,8 @@ resource "aws_iam_role_policy" "lambda" {
         Resource = "arn:aws:logs:*:*:*"
       },
       {
-        Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchWriteItem", "dynamodb:BatchGetItem"]
+        Effect = "Allow"
+        Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchWriteItem", "dynamodb:BatchGetItem"]
         Resource = [
           aws_dynamodb_table.progress.arn,
           aws_dynamodb_table.curriculum.arn,
