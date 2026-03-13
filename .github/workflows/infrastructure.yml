@@ -1,0 +1,170 @@
+name: Infrastructure (Terraform)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'lambda/**'
+      - '.github/workflows/infrastructure.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'lambda/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: ap-south-1
+  TF_VERSION: "1.7.0"
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var="openai_api_key=${{ secrets.OPENAI_API_KEY }}" \
+            -out=tfplan \
+            -no-color
+        continue-on-error: true
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = '${{ steps.plan.outcome }}';
+            const body = `#### Terraform Plan: \`${planOutput}\`
+            
+            <details><summary>Show Plan</summary>
+            
+            \`\`\`
+            Plan output available in workflow logs
+            \`\`\`
+            
+            </details>
+            
+            *Pushed by: @${{ github.actor }}*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve tfplan
+
+      - name: Export Terraform Outputs
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        id: tf-outputs
+        run: |
+          echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> "$GITHUB_OUTPUT"
+          echo "cf_distribution=$(terraform output -raw cloudfront_distribution_id)" >> "$GITHUB_OUTPUT"
+          echo "cognito_pool_id=$(terraform output -raw cognito_user_pool_id)" >> "$GITHUB_OUTPUT"
+          echo "cognito_client_id=$(terraform output -raw cognito_client_id)" >> "$GITHUB_OUTPUT"
+          echo "cognito_domain=$(terraform output -raw cognito_domain)" >> "$GITHUB_OUTPUT"
+          echo "api_endpoint=$(terraform output -raw api_endpoint)" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      s3_bucket: ${{ steps.tf-outputs.outputs.s3_bucket }}
+      cf_distribution: ${{ steps.tf-outputs.outputs.cf_distribution }}
+      cognito_pool_id: ${{ steps.tf-outputs.outputs.cognito_pool_id }}
+      cognito_client_id: ${{ steps.tf-outputs.outputs.cognito_client_id }}
+      cognito_domain: ${{ steps.tf-outputs.outputs.cognito_domain }}
+      api_endpoint: ${{ steps.tf-outputs.outputs.api_endpoint }}
+
+  deploy-site:
+    name: Deploy Frontend
+    needs: terraform
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Inject config values
+        env:
+          COGNITO_POOL_ID: ${{ needs.terraform.outputs.cognito_pool_id }}
+          COGNITO_CLIENT_ID: ${{ needs.terraform.outputs.cognito_client_id }}
+          COGNITO_DOMAIN: ${{ needs.terraform.outputs.cognito_domain }}
+          API_ENDPOINT: ${{ needs.terraform.outputs.api_endpoint }}
+        run: |
+          cat > site/js/config.js << EOF
+          const APP_CONFIG = {
+            COGNITO_USER_POOL_ID: "${COGNITO_POOL_ID}",
+            COGNITO_CLIENT_ID: "${COGNITO_CLIENT_ID}",
+            COGNITO_DOMAIN: "${COGNITO_DOMAIN}",
+            API_ENDPOINT: "${API_ENDPOINT}",
+            REDIRECT_URI: "https://spanish-tutor.vizeet.me",
+            REGION: "ap-south-1",
+          };
+          EOF
+
+      - name: Sync site to S3
+        run: |
+          aws s3 sync site/ "s3://${{ needs.terraform.outputs.s3_bucket }}" \
+            --delete \
+            --cache-control "public, max-age=3600" \
+            --exclude "*.html" 
+          aws s3 sync site/ "s3://${{ needs.terraform.outputs.s3_bucket }}" \
+            --delete \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --include "*.html"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ needs.terraform.outputs.cf_distribution }}" \
+            --paths "/*"

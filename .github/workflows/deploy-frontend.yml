@@ -1,0 +1,85 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  TF_VERSION: "1.7.0"
+
+jobs:
+  deploy:
+    name: Build & Deploy to S3
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform (for reading outputs)
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Read Terraform outputs
+        id: tf
+        working-directory: terraform
+        run: |
+          terraform init -backend=true
+          echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> "$GITHUB_OUTPUT"
+          echo "cf_distribution=$(terraform output -raw cloudfront_distribution_id)" >> "$GITHUB_OUTPUT"
+          echo "cognito_pool_id=$(terraform output -raw cognito_user_pool_id)" >> "$GITHUB_OUTPUT"
+          echo "cognito_client_id=$(terraform output -raw cognito_client_id)" >> "$GITHUB_OUTPUT"
+          echo "cognito_domain=$(terraform output -raw cognito_domain)" >> "$GITHUB_OUTPUT"
+          echo "api_endpoint=$(terraform output -raw api_endpoint)" >> "$GITHUB_OUTPUT"
+
+      - name: Inject config values
+        env:
+          COGNITO_POOL_ID: ${{ steps.tf.outputs.cognito_pool_id }}
+          COGNITO_CLIENT_ID: ${{ steps.tf.outputs.cognito_client_id }}
+          COGNITO_DOMAIN: ${{ steps.tf.outputs.cognito_domain }}
+          API_ENDPOINT: ${{ steps.tf.outputs.api_endpoint }}
+        run: |
+          cat > site/js/config.js << EOF
+          const APP_CONFIG = {
+            COGNITO_USER_POOL_ID: "${COGNITO_POOL_ID}",
+            COGNITO_CLIENT_ID: "${COGNITO_CLIENT_ID}",
+            COGNITO_DOMAIN: "${COGNITO_DOMAIN}",
+            API_ENDPOINT: "${API_ENDPOINT}",
+            REDIRECT_URI: "https://spanish-tutor.vizeet.me",
+            REGION: "ap-south-1",
+          };
+          EOF
+
+      - name: Sync site to S3
+        run: |
+          aws s3 sync site/ "s3://${{ steps.tf.outputs.s3_bucket }}" \
+            --delete \
+            --cache-control "public, max-age=3600" \
+            --exclude "*.html"
+          aws s3 sync site/ "s3://${{ steps.tf.outputs.s3_bucket }}" \
+            --delete \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --include "*.html"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.tf.outputs.cf_distribution }}" \
+            --paths "/*"

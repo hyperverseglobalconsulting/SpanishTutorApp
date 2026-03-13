@@ -1,0 +1,76 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+tfplan
+.terraform.lock.hcl
+
+# Lambda zips
+lambda/*.zip
+
+# Secrets & credentials
+secrets.config
+*.env
+*.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+
+# Executables
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+*.out
+*.app
+*.msi
+*.dmg
+*.deb
+*.rpm
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.gz
+*.bz2
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Node
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temp
+*.tmp
+*.bak
+*.ps1

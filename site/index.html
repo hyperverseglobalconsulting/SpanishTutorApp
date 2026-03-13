@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SpanishAI – IGCSE Vocab Trainer</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,300;0,600;0,900;1,300&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="css/chatbot.css"/>
+<link rel="stylesheet" href="css/app.css"/>
+</head>
+<body>
+
+<header>
+  <div class="logo">Spanish<span>AI</span></div>
+  <div class="header-right">
+    <div id="ai-status" style="display:flex;align-items:center;gap:7px;font-size:.8rem;color:var(--muted)">
+      <span id="ai-dot" style="width:8px;height:8px;border-radius:50%;background:var(--dim);display:inline-block"></span>
+      <span id="ai-label">AI loading…</span>
+    </div>
+    <div id="auth-area"></div>
+  </div>
+</header>
+
+<!-- AUTH GATE: shown when not logged in -->
+<div id="auth-gate" class="auth-gate" style="display:none">
+  <div class="auth-card">
+    <div class="auth-icon">🇪🇸</div>
+    <h1 class="auth-title">Welcome to <em>SpanishAI</em></h1>
+    <p class="auth-sub">IGCSE Vocab Trainer with AI-powered quizzes, flashcards, and your personal Spanish tutor.</p>
+    <button class="btn btn-primary btn-lg" onclick="Auth.login()">Sign In to Start Learning</button>
+    <p class="auth-note">Powered by AWS Cognito. Your progress syncs across devices.</p>
+  </div>
+</div>
+
+<!-- MAIN APP: shown when logged in -->
+<div id="app-main" style="display:none">
+  <div class="stats-bar">
+    <div class="stat"><div class="stat-n b" id="statTotal">705</div><div class="stat-l">Total Words</div></div>
+    <div class="stat"><div class="stat-n g" id="statLearned">0</div><div class="stat-l">Learned</div></div>
+    <div class="stat"><div class="stat-n o" id="statStreak">0</div><div class="stat-l">Streak 🔥</div></div>
+    <div class="stat"><div class="stat-n" id="statScore">—</div><div class="stat-l">Last Score</div></div>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Mode</div>
+        <button class="mode-btn active" data-mode="home"><span class="mode-icon">🏠</span>Home</button>
+        <button class="mode-btn" data-mode="flashcard"><span class="mode-icon">🃏</span>Flashcards</button>
+        <button class="mode-btn" data-mode="mcq"><span class="mode-icon">🎯</span>Multiple Choice</button>
+        <button class="mode-btn" data-mode="fill"><span class="mode-icon">✏️</span>Fill in Blank</button>
+        <button class="mode-btn" data-mode="match"><span class="mode-icon">🔗</span>Match the Words</button>
+        <button class="mode-btn" data-mode="aiquiz"><span class="mode-icon">🤖</span>AI Quiz (GPT)</button>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Priority</div>
+        <div class="priority-pills">
+          <button class="ppill active" data-p="all">All</button>
+          <button class="ppill" data-p="★★★">★★★</button>
+          <button class="ppill" data-p="★★">★★</button>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Topic</div>
+        <button class="cat-btn active" data-cat="all"><span>All Topics</span><span class="cat-badge">705</span></button>
+        <div id="catList"></div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="screen active" id="screen-home">
+        <div class="home-hero">
+          <div class="hero-title">Learn Spanish<br/><em>the smart way.</em></div>
+          <div class="hero-sub">705 IGCSE vocab words. AI-powered quizzes. Flashcards. Matching. Pick a mode and start earning stars.</div>
+          <div class="hero-cta">
+            <button class="btn btn-primary" onclick="startMode('mcq')">▶ Start Quiz</button>
+            <button class="btn btn-secondary" onclick="startMode('flashcard')">🃏 Flashcards</button>
+            <button class="btn btn-secondary" onclick="startMode('aiquiz')">🤖 AI Quiz</button>
+          </div>
+        </div>
+        <div class="quick-cards">
+          <div class="quick-card" style="--accent-c:var(--accent)" onclick="startMode('mcq')"><div class="qc-icon">🎯</div><div class="qc-title">Multiple Choice</div><div class="qc-desc">Pick the right English meaning from 4 options.</div></div>
+          <div class="quick-card" style="--accent-c:var(--blue)" onclick="startMode('fill')"><div class="qc-icon">✏️</div><div class="qc-title">Fill in the Blank</div><div class="qc-desc">Complete the sentence with the correct Spanish word.</div></div>
+          <div class="quick-card" style="--accent-c:var(--green)" onclick="startMode('match')"><div class="qc-icon">🔗</div><div class="qc-title">Match the Words</div><div class="qc-desc">Pair 8 Spanish words with their English meanings.</div></div>
+          <div class="quick-card" style="--accent-c:var(--purple)" onclick="startMode('aiquiz')"><div class="qc-icon">🤖</div><div class="qc-title">AI Quiz</div><div class="qc-desc">GPT-4o mini writes custom contextual questions.</div></div>
+          <div class="quick-card" style="--accent-c:var(--accent2)" onclick="startMode('flashcard')"><div class="qc-icon">🃏</div><div class="qc-title">Flashcards</div><div class="qc-desc">Classic flip cards. Track your progress.</div></div>
+          <div class="quick-card" style="--accent-c:var(--muted)" onclick="startMode('mcq')"><div class="qc-icon">📊</div><div class="qc-title">705 Words</div><div class="qc-desc">12 IGCSE topics with priority filtering.</div></div>
+        </div>
+      </div>
+      <div class="screen" id="screen-flashcard"><div class="quiz-header"><div class="quiz-title">🃏 Flashcards</div><div style="display:flex;align-items:center;gap:12px"><div class="progress-bar-wrap" style="width:160px"><div class="progress-bar" id="fc-progress" style="width:0%"></div></div><button class="btn btn-secondary" onclick="showHome()">✕ Exit</button></div></div><div id="fc-content"></div></div>
+      <div class="screen" id="screen-mcq"><div class="quiz-header"><div class="quiz-title">🎯 Multiple Choice</div><div style="display:flex;align-items:center;gap:12px"><div class="progress-bar-wrap" style="width:160px"><div class="progress-bar" id="mcq-progress" style="width:0%"></div></div><button class="btn btn-secondary" onclick="showHome()">✕ Exit</button></div></div><div id="mcq-content"></div></div>
+      <div class="screen" id="screen-fill"><div class="quiz-header"><div class="quiz-title">✏️ Fill in the Blank</div><div style="display:flex;align-items:center;gap:12px"><div class="progress-bar-wrap" style="width:160px"><div class="progress-bar" id="fill-progress" style="width:0%"></div></div><button class="btn btn-secondary" onclick="showHome()">✕ Exit</button></div></div><div id="fill-content"></div></div>
+      <div class="screen" id="screen-match"><div class="quiz-header"><div class="quiz-title">🔗 Match the Words</div><div style="display:flex;align-items:center;gap:12px"><span id="match-timer" style="font-size:.9rem;color:var(--accent2)">⏱ 0s</span><button class="btn btn-secondary" onclick="showHome()">✕ Exit</button></div></div><div id="match-content"></div></div>
+      <div class="screen" id="screen-aiquiz"><div class="quiz-header"><div class="quiz-title">🤖 AI Quiz</div><div style="display:flex;align-items:center;gap:12px"><div class="progress-bar-wrap" style="width:160px"><div class="progress-bar" id="ai-progress" style="width:0%"></div></div><button class="btn btn-secondary" onclick="showHome()">✕ Exit</button></div></div><div id="aiquiz-content"></div></div>
+    </main>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/progress.js"></script>
+<script src="js/chatbot.js"></script>
+<script src="js/vocab-data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
