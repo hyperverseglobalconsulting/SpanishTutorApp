@@ -320,6 +320,22 @@ function startUnit(unitId) {
 }
 
 function retakeUnit(unitId) {
+  // Confirm before resetting progress
+  if (!confirm('Are you sure you want to retake this unit? Your current progress will be reset and you will start from the beginning of the tests.')) {
+    return;
+  }
+  
+  // Reset progress for all words in this unit
+  const unit = Curriculum.getUnit(unitId);
+  if (unit) {
+    const mastery = Mastery.getMasteryData();
+    for (const word of unit.words) {
+      delete mastery[word.spanish];
+    }
+    Mastery.saveMasteryData(mastery);
+    cloudSave();
+  }
+  
   // Restart from the recognise stage (skip learn)
   const info = LessonEngine.startLesson(unitId, 'recognise');
   if (!info) return;
