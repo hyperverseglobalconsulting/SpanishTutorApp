@@ -260,10 +260,11 @@ function renderPhaseMap() {
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div style="font-size:.7rem;color:var(--muted)">${progress}%</div>
-          <div style="display:flex;gap:6px">
-            ${unitUnlocked && progress > 0 && progress < 95 ? `<button class="btn btn-primary" style="font-size:.7rem;padding:4px 10px" onclick="startUnit(${unit.id})">▶ Resume</button>` : ''}
-            ${unitUnlocked && progress > 0 ? `<button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="retakeUnit(${unit.id})">🔄 Retake</button>` : ''}
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
             ${unitUnlocked && progress === 0 ? `<button class="btn btn-primary" style="font-size:.7rem;padding:4px 10px" onclick="startUnit(${unit.id})">▶ Start</button>` : ''}
+            ${unitUnlocked && progress > 0 && progress < 95 ? `<button class="btn btn-primary" style="font-size:.7rem;padding:4px 10px" onclick="startUnit(${unit.id})">▶ Resume</button>` : ''}
+            ${unitUnlocked && progress > 0 ? `<button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="learnUnit(${unit.id})">� Learn</button>` : ''}
+            ${unitUnlocked && progress > 0 ? `<button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="retakeUnit(${unit.id})">🔄 Retake</button>` : ''}
           </div>
         </div>
       </div>`;
@@ -319,7 +320,18 @@ function startUnit(unitId) {
 }
 
 function retakeUnit(unitId) {
-  // Restart from the learn stage
+  // Restart from the recognise stage (skip learn)
+  const info = LessonEngine.startLesson(unitId, 'recognise');
+  if (!info) return;
+  const stageInfo = Curriculum.STAGES.find(s => s.id === info.stage);
+  document.getElementById('lessonTitle').textContent = `${info.unit.phaseIcon} ${info.unit.title}`;
+  document.getElementById('lessonStage').textContent = `${stageInfo.icon} ${stageInfo.label} — ${stageInfo.desc}`;
+  showScreen('lesson');
+  renderExercise();
+}
+
+function learnUnit(unitId) {
+  // Always start from the learn stage to review vocabulary
   const info = LessonEngine.startLesson(unitId, 'learn');
   if (!info) return;
   const stageInfo = Curriculum.STAGES.find(s => s.id === info.stage);
