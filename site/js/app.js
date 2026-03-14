@@ -235,8 +235,7 @@ function renderPhaseMap() {
       const stageInfo = Curriculum.STAGES.find(s => s.id === stage);
       const done = progress >= 95;
 
-      html += `<div class="quick-card" style="--accent-c:${done ? 'var(--green)' : unitUnlocked ? 'var(--accent)' : 'var(--dim)'};padding:16px;cursor:${unitUnlocked ? 'pointer' : 'default'};opacity:${unitUnlocked ? 1 : 0.45}"
-        ${unitUnlocked ? `onclick="startUnit(${unit.id})"` : ''}>
+      html += `<div class="quick-card" style="--accent-c:${done ? 'var(--green)' : unitUnlocked ? 'var(--accent)' : 'var(--dim)'};padding:16px;cursor:default;opacity:${unitUnlocked ? 1 : 0.45}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <span style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Unit ${unit.id}</span>
           ${done ? '<span style="font-size:.9rem">✅</span>' : !unitUnlocked ? '<span style="font-size:.8rem">🔒</span>' : ''}
@@ -259,10 +258,13 @@ function renderPhaseMap() {
         <div style="background:var(--dim);border-radius:3px;height:4px;overflow:hidden;margin-bottom:10px">
           <div style="height:100%;width:${progress}%;background:${done ? 'var(--green)' : 'var(--accent)'};border-radius:3px;transition:width .3s"></div>
         </div>
-        <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
           <div style="font-size:.7rem;color:var(--muted)">${progress}%</div>
-          ${unitUnlocked && progress > 0 ? `<button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="event.stopPropagation();retakeUnit(${unit.id})">🔄 Retake</button>` : ''}
-          ${unitUnlocked && progress === 0 ? `<button class="btn btn-primary" style="font-size:.7rem;padding:4px 10px" onclick="event.stopPropagation();startUnit(${unit.id})">▶ Start</button>` : ''}
+          <div style="display:flex;gap:6px">
+            ${unitUnlocked && progress > 0 && progress < 95 ? `<button class="btn btn-primary" style="font-size:.7rem;padding:4px 10px" onclick="startUnit(${unit.id})">▶ Resume</button>` : ''}
+            ${unitUnlocked && progress > 0 ? `<button class="btn btn-secondary" style="font-size:.7rem;padding:4px 10px" onclick="retakeUnit(${unit.id})">🔄 Retake</button>` : ''}
+            ${unitUnlocked && progress === 0 ? `<button class="btn btn-primary" style="font-size:.7rem;padding:4px 10px" onclick="startUnit(${unit.id})">▶ Start</button>` : ''}
+          </div>
         </div>
       </div>`;
     }
