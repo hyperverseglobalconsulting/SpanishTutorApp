@@ -325,11 +325,12 @@ function retakeUnit(unitId) {
     return;
   }
   
-  // Reset progress for all words in this unit
+  // Reset progress for all words in this unit to level 1 (introduced, not new)
+  // This ensures getCurrentStage returns 'recognise' instead of 'learn'
   const unit = Curriculum.getUnit(unitId);
   if (unit) {
     for (const word of unit.words) {
-      Mastery.setWordLevel(word.spanish, 0);
+      Mastery.setWordLevel(word.spanish, 1);
     }
     cloudSave();
   }
