@@ -442,7 +442,15 @@ function renderLearnCard(container, ex) {
         <button class="btn btn-primary" onclick="submitLearn()">Got it — Next →</button>
       </div>
     </div>`;
-  setTimeout(() => speak(w.spanish, 'tts-learn-' + ex.index), 300);
+  
+  // Update back button visibility
+  const prog = LessonEngine.getProgress();
+  setTimeout(() => {
+    const backBtn = document.getElementById('learnBackBtn');
+    if (backBtn) backBtn.style.display = prog.current > 0 ? 'inline-block' : 'none';
+    speak(w.spanish, 'tts-learn-' + ex.index);
+  }, 50);
+  
   // AI enrichment: load mnemonic, cultural note, fun fact
   loadWordEnrichment(w);
 }
