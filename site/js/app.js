@@ -328,11 +328,9 @@ function retakeUnit(unitId) {
   // Reset progress for all words in this unit
   const unit = Curriculum.getUnit(unitId);
   if (unit) {
-    const mastery = Mastery.getMasteryData();
     for (const word of unit.words) {
-      delete mastery[word.spanish];
+      Mastery.setWordLevel(word.spanish, 0);
     }
-    Mastery.saveMasteryData(mastery);
     cloudSave();
   }
   
